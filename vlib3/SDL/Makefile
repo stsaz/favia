@@ -10,10 +10,17 @@ default: libSDL3.so
 $(DIR): | $(PKG)
 	tar xf $(PKG)
 
+CMAKE_FLAGS := -DSDL_SHARED=ON -DSDL_STATIC=OFF \
+	-DSDL_AUDIO=OFF \
+	-DSDL_CAMERA=OFF \
+	-DSDL_HAPTIC=OFF \
+	-DSDL_POWER=OFF \
+	-DSDL_SENSOR=OFF \
+	-DSDL_DIALOG=OFF
+
 $(DIR)/build/libSDL3.so: | $(DIR)
-	cd $(DIR) && cmake -S . -B build \
-		-DSDL_SHARED=ON -DSDL_STATIC=OFF
-	cd $(DIR) && cmake --build build
+	cd $(DIR) && cmake -S . -B build $(CMAKE_FLAGS)
+	cd $(DIR) && cmake --build build -v
 
 libSDL3.so: | $(DIR)
 	$(SUBMAKE) $(DIR)/build/libSDL3.so

@@ -1,4 +1,4 @@
-/** favia
+/** favia: AV frame queue
 2025, Simon Zolin */
 
 struct queue {
@@ -9,10 +9,10 @@ struct queue {
 		for (uint i = 0;  i < this->cap;  i++) {
 			this->data[i].destroy();
 		}
-		ffmem_free(this);
+		ffmem_alignfree(this);
 	}
 
-	uint length() { return w - r; }
+	uint length() const { return w - r; }
 
 	void reset() {
 		qframe *f;
@@ -54,12 +54,41 @@ struct queue {
 
 static struct queue* queue_alloc(uint n) {
 	uint nn = sizeof(struct queue) + n * sizeof(struct qframe);
-	struct queue *q = (struct queue*)ffmem_alloc(nn);
+	struct queue *q = (struct queue*)ffmem_align(nn, 64);
 	ffmem_zero(q, nn);
+	q->r = q->w = 0;
 	q->cap = n;
 	q->mask = n - 1;
 	for (uint i = 0;  i < n;  i++) {
 		q->data[i].alloc();
 	}
 	return q;
+}
+
+static struct queue* queue_realloc(struct queue *q, uint n) {
+	uint len = q->w - q->r, n_right, i;
+	if (n < len)
+		return NULL;
+
+	uint nn = sizeof(struct queue) + n * sizeof(struct qframe);
+	struct queue *nq = (struct queue*)ffmem_align(nn, 64);
+	ffmem_zero(nq, nn);
+	nq->r = nq->w = 0;
+	nq->cap = n;
+	nq->mask = n - 1;
+	if (!nq)
+		return NULL;
+
+	i = q->r & q->mask;
+	n_right = ffmin(len, q->cap - i);
+	ffmem_copy(nq->data, q->data + i, n_right * sizeof(qframe));
+	ffmem_copy(nq->data + n_right, q->data, (len - n_right) * sizeof(qframe));
+	nq->w = len;
+
+	for (uint i = len;  i < n;  i++) {
+		nq->data[i].alloc();
+	}
+
+	ffmem_alignfree(q);
+	return nq;
 }

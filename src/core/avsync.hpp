@@ -1,4 +1,4 @@
-/** favia
+/** favia: AV synchronization
 2025, Simon Zolin */
 
 #include <ffsys/perf.h>
@@ -13,9 +13,13 @@ struct avsync {
 
 	uint master, a_buf_usec;
 
-	avsync() { ffmem_zero_obj(this); }
+	static uint64_t now() {
+		return xxtime(fftime_monotonic()).to_usec();
+	}
+
 	void reset() {
 		ffmem_zero(this, FF_OFF(struct avsync, master));
+		a_sig_next = ~0ULL;
 	}
 
 	uint64_t pos() const {
@@ -29,17 +33,16 @@ struct avsync {
 		master = 1;
 	}
 
-	void start() {
+	void a_start() {
 		if (!a_active)
 			dbglog("audio started");
-		fftime t = fftime_monotonic();
-		uint64_t rt_now = fftime_to_usec(&t);
+		uint64_t rt_now = now();
 		rt_last[0] = rt_last[1] = rt_now;
-		a_active = 1;
 		a_sig_next = rt_now + a_buf_usec/4; // update audio 4 times per buffer
+		a_active = 1;
 	}
 
-	void set(uint64_t ts, uint dur, uint flags) {
+	void frame(uint64_t ts, uint dur, uint flags) {
 		int i = !!(flags & 1);
 
 		if (ts < ts_next[i]) {
@@ -50,19 +53,17 @@ struct avsync {
 		ts_cur[i] = ts;
 		ts_next[i] = ts + dur;
 
-		fftime t = fftime_monotonic();
-		rt_last[i] = fftime_to_usec(&t);
+		rt_last[i] = now();
 	}
 
 	/**
-	timeout_msec: time to wait when there are no events
+	timeout_usec: time to wait when there are no events
 	Return bitmask of the streams that need action */
 	int read(int *timeout_usec) {
-		if (!a_active)
+		if (master == 1 && !a_active)
 			return 2; // keep filling audio buffer until it's full
 
-		fftime t = fftime_monotonic();
-		uint64_t rt_now = fftime_to_usec(&t);
+		uint64_t rt_now = now();
 
 		uint64_t rtj = rt_now - rt_last[master] + pos();
 		dbglog("rtj:%D[%D,%D]  vts:%U-%U  ats:%U-%U"

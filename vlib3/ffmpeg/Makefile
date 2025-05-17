@@ -11,59 +11,59 @@ $(DIR): | $(PKG)
 	tar xf $(PKG)
 	chmod 777 $(DIR)
 
-CONFIGURE_FLAGS := --enable-vaapi \
+CONFIGURE_FLAGS := --disable-static --enable-shared \
+	--disable-doc \
+	--disable-programs \
+	--disable-autodetect \
+	--disable-network \
+	--disable-devices \
+	--disable-avdevice \
+	--disable-avfilter --disable-filters \
+	--disable-encoders \
+	--disable-demuxers \
+	--disable-muxers \
+	--disable-decoders \
+	--disable-protocols
+
+CONFIGURE_FLAGS += \
+	--enable-protocol=file \
+	\
+	--enable-demuxer=avi \
+	--enable-demuxer=m4v \
+	--enable-demuxer=matroska \
+	--enable-demuxer=mpegts \
+	--enable-demuxer=mov \
+	\
+	--enable-decoder=av1 \
+	--enable-decoder=h264 \
+	--enable-decoder=hevc \
+	--enable-decoder=mpeg1video \
+	--enable-decoder=mpeg2video \
+	--enable-decoder=mpeg4 \
+	--enable-decoder=mpegvideo \
+	--enable-decoder=vp9 \
+	--enable-decoder=wmv1 \
+	--enable-decoder=wmv2 \
+	--enable-decoder=wmv3 \
+	\
+	--enable-decoder=aac \
+	--enable-decoder=aac_fixed \
+	--enable-decoder=aac_latm \
+	--enable-decoder=ac3 \
+	--enable-decoder=ac3_fixed \
+	--enable-decoder=alac \
+	--enable-decoder=flac \
+	--enable-decoder=mp3 \
+	--enable-decoder=mp3float \
+	--enable-decoder=opus \
+	--enable-decoder=vorbis
+
+CONFIGURE_FLAGS += --enable-vaapi \
 	--enable-hwaccel=h264_vaapi \
-	--enable-hwaccel=hevc_vaapi \
+	--enable-hwaccel=hevc_vaapi
 
 $(DIR)/config.h: | $(DIR)
-	cd $(DIR) && ./configure --disable-static --enable-shared \
-		--disable-doc \
-		--disable-programs \
-		--disable-autodetect \
-		--disable-network \
-		--disable-devices \
-		--disable-avdevice \
-		--disable-avfilter --disable-filters \
-		\
-		--disable-protocols \
-		--enable-protocol=file \
-		\
-		--disable-demuxers \
-		--enable-demuxer=avi \
-		--enable-demuxer=m4v \
-		--enable-demuxer=matroska \
-		--enable-demuxer=mpegts \
-		--enable-demuxer=mov \
-		\
-		--disable-decoders \
-		\
-		--enable-decoder=av1 \
-		--enable-decoder=h264 \
-		--enable-decoder=hevc \
-		--enable-decoder=mpeg1video \
-		--enable-decoder=mpeg2video \
-		--enable-decoder=mpeg4 \
-		--enable-decoder=mpegvideo \
-		--enable-decoder=vp9 \
-		--enable-decoder=wmv1 \
-		--enable-decoder=wmv2 \
-		--enable-decoder=wmv3 \
-		\
-		--enable-decoder=aac \
-		--enable-decoder=aac_fixed \
-		--enable-decoder=aac_latm \
-		--enable-decoder=ac3 \
-		--enable-decoder=ac3_fixed \
-		--enable-decoder=alac \
-		--enable-decoder=flac \
-		--enable-decoder=mp3 \
-		--enable-decoder=mp3float \
-		--enable-decoder=opus \
-		--enable-decoder=vorbis \
-		\
-		--disable-encoders \
-		--disable-muxers \
-		$(CONFIGURE_FLAGS)
+	cd $(DIR) && ./configure $(CONFIGURE_FLAGS)
 	sed -i.old 's/LDSOFLAGS=/LDSOFLAGS:='\''-Wl,-rpath,$$$$$$$$ORIGIN'\''/' $(DIR)/ffbuild/config.mak
 
 $(DIR)/libavformat/libavformat.so: $(DIR)/config.h

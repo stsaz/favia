@@ -13,6 +13,7 @@ include $(FFBASE_DIR)/conf.mk
 
 CFLAGS := -g \
 	-MMD -MP \
+	-DFFBASE_MEM_ASSERT \
 	-I$(FAVIA_DIR)/src -I$(FFBASE_DIR) -I$(FFSYS_DIR) -I$(FFAUDIO_DIR) -I$(SDL_DIR) -I$(FFMPEG_DIR)
 CFLAGS += -O0
 
@@ -36,8 +37,8 @@ ifdef FAV_VERSION_STR
 core.o: CFLAGS += -DFAV_VERSION_STR=\"$(FAV_VERSION_STR)\"
 endif
 
-%.o: $(FAVIA_DIR)/src/exe/%.c
-	$(C) $(CFLAGS) $< -o $@
+%.o: $(FAVIA_DIR)/src/exe/%.cpp
+	$(CXX) $(CFLAGS) $< -o $@
 
 %.o: $(FAVIA_DIR)/src/util/%.c
 	$(C) $(CFLAGS) $< -o $@

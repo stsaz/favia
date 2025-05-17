@@ -1,68 +1,85 @@
 /** favia: process events from SDL window
 2025, Simon Zolin */
 
-#include <SDL3/SDL.h>
-
-#define SEEK_STEP_SEC  10
-#define SEEK_LEAP_SEC  60
+#include <ffsys/perf.h>
+#include <util/SDL.hpp>
 
 struct ui {
 	uint flags;
+	uint64_t mlclick_ts;
 };
 static struct ui ui;
 
-int user_events(fav_track *t) {
-	SDL_PumpEvents();
+static struct {
+	int key, mod, cmd, arg1;
+} ui_keymap[] = {
+	{ SDLK_DOWN,		0,								FAV_TRACK_VOLUME, 0 },
+	{ SDLK_LEFT, 		0,								FAV_TRACK_SEEK, 2 },
+	{ SDLK_LEFT, 		SDL_KMOD_CTRL,					FAV_TRACK_SEEK, 1|2 },
+	{ SDLK_LEFT, 		SDL_KMOD_CTRL | SDL_KMOD_SHIFT,	FAV_TRACK_SEEK, 4|2 },
+	{ SDLK_RIGHT, 		0,								FAV_TRACK_SEEK, 0 },
+	{ SDLK_RIGHT, 		SDL_KMOD_CTRL,					FAV_TRACK_SEEK, 1 },
+	{ SDLK_RIGHT, 		SDL_KMOD_CTRL | SDL_KMOD_SHIFT,	FAV_TRACK_SEEK, 4 },
+	{ SDLK_UP,			0,								FAV_TRACK_VOLUME, 1 },
+
+	{ SDLK_EQUALS,		SDL_KMOD_CTRL | SDL_KMOD_SHIFT,	FAV_TRACK_WINDOW, 1 },
+	{ SDLK_EQUALS,		SDL_KMOD_SHIFT,					FAV_TRACK_ZOOM, 1 },
+	{ SDLK_MINUS,		0,								FAV_TRACK_ZOOM, 0 },
+	{ SDLK_MINUS,		SDL_KMOD_CTRL,					FAV_TRACK_WINDOW, 0 },
+	{ SDLK_SPACE,		0,								FAV_TRACK_PAUSE, 0 },
+	{ SDLK_TAB,			0,								FAV_TRACK_WINDOW, 2 },
+	{ SDLK_DELETE,		SDL_KMOD_SHIFT,					FAV_TRACK_SOURCE, 0 },
+	{ SDLK_LEFTBRACKET,	0,								FAV_TRACK_SEEK, 0x10 },
+	{ SDLK_RIGHTBRACKET,0,								FAV_TRACK_SEEK, 0x20 },
+
+	{ SDLK_KP_MINUS,	0,								FAV_TRACK_ZOOM, 0 },
+	{ SDLK_KP_MINUS,	SDL_KMOD_CTRL,					FAV_TRACK_WINDOW, 0 },
+	{ SDLK_KP_PLUS,		0,								FAV_TRACK_ZOOM, 1 },
+	{ SDLK_KP_PLUS,		SDL_KMOD_CTRL,					FAV_TRACK_WINDOW, 1 },
+
+	{ SDLK_A,			0,								FAV_TRACK_AUDIO_NEXT, 0 },
+	{ SDLK_F,			0,								FAV_TRACK_FULLSCREEN, 0 },
+	{ SDLK_M,			0,								FAV_TRACK_VOLUME, 2 },
+	{ SDLK_N,			0,								FAV_TRACK_NEXT, 1 },
+	{ SDLK_P,			0,								FAV_TRACK_NEXT, 0 },
+	{ SDLK_Q,			0,								FAV_TRACK_QUIT, 0 },
+};
+
+static uint key_find(int k, int m, int *arg1)
+{
+	for (uint i = 0;  i < FF_COUNT(ui_keymap);  i++) {
+		if (k == ui_keymap[i].key
+			&& (!(m | ui_keymap[i].mod)
+				|| ((m & ui_keymap[i].mod)
+					&& !(m & ~ui_keymap[i].mod)))) {
+			*arg1 = ui_keymap[i].arg1;
+			return ui_keymap[i].cmd;
+		}
+	}
+	return ~0U;
+}
+
+int user_events() {
 	SDL_Event ev[32];
-	int n = SDL_PeepEvents(ev, FF_COUNT(ev), SDL_GETEVENT, SDL_EVENT_FIRST, SDL_EVENT_LAST);
+	SDL_Window *wnd[32];
+	int n = sdl_read_events(ev, FF_COUNT(ev), wnd);
 	for (int i = 0;  i < n;  i++) {
 		const SDL_Event *e = ev + i;
-		dbglog("SDL event: type:0x%xu", e->type);
+		dbglog("SDL event from %p: type:0x%xu", wnd[i], e->type);
+
+		uint cmd = ~0U;
+		int arg1 = 0, arg2 = 0;
 		switch (e->type) {
 		case SDL_EVENT_KEY_DOWN:
+
+			if ((cmd = key_find(e->key.key, e->key.mod, &arg1)) != ~0U)
+				goto process;
+
 			switch (e->key.key) {
 
 			case SDLK_LCTRL:
 			case SDLK_RCTRL:
 				ui.flags |= 1;  break;
-
-			case SDLK_LSHIFT:
-			case SDLK_RSHIFT:
-				ui.flags |= 2;  break;
-
-			case SDLK_SPACE:
-				core->track->cmd(t, FAV_TRACK_PAUSE_TOGGLE);  break;
-
-			case SDLK_LEFT:
-			case SDLK_RIGHT: {
-				int r = !(ui.flags & 1) ? SEEK_STEP_SEC : SEEK_LEAP_SEC;
-				if (e->key.key == SDLK_LEFT)
-					r = -r;
-				core->track->seek_by(t, r*1000);
-				break;
-			}
-
-			case SDLK_DOWN:
-				core->track->cmd(t, FAV_TRACK_VOLUME, 0);  break;
-			case SDLK_UP:
-				core->track->cmd(t, FAV_TRACK_VOLUME, 1);  break;
-
-			case SDLK_F:
-				core->track->cmd(t, FAV_TRACK_FULLSCREEN_TOGGLE);  break;
-
-			case SDLK_MINUS:
-			case SDLK_KP_MINUS:
-				core->track->cmd(t, FAV_TRACK_ZOOM, 0);  break;
-			case SDLK_EQUALS:
-				if (!(ui.flags & 2))
-					break;
-				// fallthrough
-			case SDLK_KP_PLUS:
-				core->track->cmd(t, FAV_TRACK_ZOOM, 1);  break;
-
-			case SDLK_Q:
-				core->stop();
-				return -1;
 
 			default:
 				warnlog("No such key binding (0x%xu)", e->key.key);
@@ -74,29 +91,48 @@ int user_events(fav_track *t) {
 			case SDLK_LCTRL:
 			case SDLK_RCTRL:
 				ui.flags &= ~1;  break;
-
-			case SDLK_LSHIFT:
-			case SDLK_RSHIFT:
-				ui.flags &= ~2;  break;
 			}
 			break;
 
 		case SDL_EVENT_MOUSE_BUTTON_DOWN:
 			switch (e->button.button) {
-			case SDL_BUTTON_LEFT:
-				core->track->cmd(t, FAV_TRACK_FULLSCREEN_TOGGLE);  break;
+			case SDL_BUTTON_LEFT: {
+				fftime t = fftime_monotonic();
+				uint64_t ts = fftime_to_msec(&t);
+				if (ts < ui.mlclick_ts + 400) {
+					cmd = FAV_TRACK_FULLSCREEN;
+					ui.mlclick_ts = 0;
+				} else {
+					ui.mlclick_ts = ts;
+				}
+				break;
+			}
 			case SDL_BUTTON_RIGHT:
-				core->track->cmd(t, FAV_TRACK_PAUSE_TOGGLE);  break;
+				cmd = FAV_TRACK_PAUSE;  break;
 			}
 			break;
 
-		// case SDL_EVENT_MOUSE_WHEEL:
-		// 	core->track->cmd(t, FAV_TRACK_VOLUME, 0);
-		// 	core->track->cmd(t, FAV_TRACK_VOLUME, 1);
+		case SDL_EVENT_MOUSE_WHEEL:
+			if (ui.flags & 1) {
+				cmd = FAV_TRACK_ZOOM, arg1 = (e->wheel.y >= 0);
+				break;
+			}
+			cmd = FAV_TRACK_VOLUME, arg1 = (e->wheel.y >= 0);
+			break;
+
+		case SDL_EVENT_WINDOW_RESIZED:
+			cmd = FAV_TRACK_WINDOW, arg1 = 4, arg2 = e->display.data1 | (e->display.data2 << 16);  break;
 
 		case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
-			core->stop();
-			return -1;
+			cmd = FAV_TRACK_STOP;  break;
+		}
+
+process:
+		if (cmd != ~0U) {
+			assert(wnd[i]);
+			fav_track *t = core->track->find(wnd[i]);
+			assert(t);
+			core->track->cmd(t, cmd, arg1, arg2);
 		}
 	}
 	return 0;

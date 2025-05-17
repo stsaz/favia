@@ -57,7 +57,8 @@ make -j16 \
  -C vlib3/_linux-amd64 \
  -f ../ffmpeg/Makefile
 
-make -j16 \
+export CMAKE_BUILD_PARALLEL_LEVEL=16
+make \
  -C vlib3/_linux-amd64 \
  -f ../SDL/Makefile
 
