@@ -1,7 +1,7 @@
 /** favia
 2025, Simon Zolin */
 
-#define FAV_VER  101
+#define FAV_VER  102
 
 #include <ffsys/base.h>
 #include <stdint.h>
@@ -78,6 +78,8 @@ struct fav_track_conf {
 
 	uint no_display :1;
 	uint no_sound :1;
+	uint url_transient :1;
+	uint pause_on_end :1;
 };
 
 static inline const struct fav_track_conf* fav_track_info(const fav_track *t) { return (struct fav_track_conf*)t; }
@@ -102,6 +104,7 @@ enum FAV_TRACK_CMD {
 	FAV_TRACK_QUIT,
 	FAV_TRACK_WINDOW, // int, int
 	FAV_TRACK_SOURCE,
+	FAV_TRACK_ADD, // char* (transient)
 };
 
 struct fav_track_if {

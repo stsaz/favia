@@ -24,6 +24,7 @@ struct exe {
 	u_char mute;
 	u_char no_display;
 	u_char no_sound;
+	u_char pause_on_end;
 	u_char repeat;
 	uint parallel;
 	uint volume;
@@ -93,6 +94,7 @@ static fav_track* trk_new(const char *url) {
 		},
 		.no_display = x->no_display,
 		.no_sound = x->no_sound,
+		.pause_on_end = x->pause_on_end,
 	};
 	return core->track->create(&tc);
 }

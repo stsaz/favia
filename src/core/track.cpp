@@ -52,6 +52,7 @@ do { \
 #define SEEK_STEP_SEC  10
 #define SEEK_LEAP_SEC  60
 #define SEEK_LEAP_PCT  5
+#define AVQ_SIZE_MAX  256
 
 struct tracks {
 	xxvec tracks; // fav_track*[]
@@ -91,6 +92,7 @@ struct fav_track {
 	uint vzoom;
 	uint paused;
 	uint amute :1;
+	uint redraw :1;
 
 	fav_track(){}
 	~fav_track() {
@@ -98,6 +100,9 @@ struct fav_track {
 			vq->free();
 		if (aq)
 			aq->free();
+
+		if (conf.url_transient)
+			ffmem_free((char*)conf.input.url);
 	}
 
 	static int input_read(void *opaque, uint8_t *buf, int size)
@@ -198,6 +203,13 @@ struct fav_track {
 		return 0;
 	}
 
+	void pause_toggle() {
+		this->paused = !this->paused;
+		this->a.pause(this->paused);
+		if (!this->paused)
+			this->sync.reset();
+	}
+
 	void seek(uint64_t pos_msec) {
 		char buf[64];
 		infolog(this, "Seek: %s", time_print(pos_msec, buf, sizeof(buf)));
@@ -219,6 +231,18 @@ struct fav_track {
 		uint h = dec.video_height() * vzoom / 100;
 		v.window_size(w, h);
 		v.texture_rect(0, 0, w, h);
+	}
+
+	void fullscreen_toggle() {
+		uint w = this->dec.video_width(), h = this->dec.video_height();
+		uint fs = this->v.fullscreen();
+		this->v.fullscreen(!fs);
+		if (fs) {
+			w = w * this->vzoom / 100;
+			h = h * this->vzoom / 100;
+		}
+		this->v.texture_rect(0, 0, w, h);
+		this->redraw = 1;
 	}
 
 	void mute_toggle() {
@@ -298,13 +322,22 @@ struct fav_track {
 			return done(FAV_TRACK_E_INIT);
 		}
 
-		if (this->paused)
+		if (this->paused && !this->redraw)
 			return 0x7fffffff;
 
 		for (;;) {
 
-			r = sync.read(&n);
-			dbglog(this, "r:%u  VQ:%u  AQ:%u", r, vq->length(), aq->length());
+			r = 0;
+			if (!this->paused) {
+				r = sync.read(&n);
+				dbglog(this, "r:%u  VQ:%u  AQ:%u", r, vq->length(), aq->length());
+			}
+
+			if (this->redraw) {
+				this->redraw = 0;
+				r |= 1;
+			}
+
 			if (!r) {
 				// no action needed
 				if (input_full || finished)
@@ -314,19 +347,25 @@ struct fav_track {
 
 			int want_input = 0;
 
-			if ((r & 1) && (f = vq->read())) {
+			if ((r & 1) && (f = vq->peek())) {
 
-				if (input_full & 1) {
-					input_full &= ~1;
-				}
-
+				int rm = !this->paused;
 				if (!conf.no_display) {
 					if (!v.display(f->frame.frame)) {
 						errlog(this, "display: %s", v.error());
+						rm = 1;
 					}
 				}
+
 				sync.frame(f->ts, f->dur, 0);
-				f->unref();
+
+				if (rm) {
+					f->unref();
+					vq->read();
+					if (input_full & 1) {
+						input_full &= ~1;
+					}
+				}
 
 				if (until(f->ts / 1000))
 					return done(0);
@@ -370,12 +409,18 @@ struct fav_track {
 
 				if ((finished & 3) == 3) {
 					dbglog(this, "finished");
+
+					if (this->conf.pause_on_end) {
+						this->pause_toggle();
+						return 0;
+					}
+
 					return done(0);
 				}
 
 				if ((want_input & 1) && (input_full & 2)) {
-					if (aq->cap < 256) {
-						aq = queue_realloc(aq, ffmin(aq->cap * 2, 256));
+					if (aq->cap < AVQ_SIZE_MAX) {
+						aq = queue_realloc(aq, ffmin(aq->cap * 2, AVQ_SIZE_MAX));
 						input_full &= ~2;
 					} else {
 						warnlog(this, "need very large AQ");
@@ -384,8 +429,8 @@ struct fav_track {
 				}
 
 				if ((want_input & 2) && (input_full & 1)) {
-					if (vq->cap < 256) {
-						vq = queue_realloc(vq, ffmin(vq->cap * 2, 256));
+					if (vq->cap < AVQ_SIZE_MAX) {
+						vq = queue_realloc(vq, ffmin(vq->cap * 2, AVQ_SIZE_MAX));
 						input_full &= ~1;
 					} else {
 						warnlog(this, "need very large VQ");
@@ -503,6 +548,17 @@ static int track_cmd(fav_track *t, uint cmd, ...) {
 	int r;
 	va_list va;
 	va_start(va, cmd);
+
+	if (cmd == FAV_TRACK_ADD) {
+		char *fn = va_arg(va, char*);
+		va_end(va);
+		fav_track_conf tc = t->conf;
+		tc.input.url = fn;
+		tc.url_transient = 1;
+		track_create(&tc);
+		return 0;
+	}
+
 	uint flags = va_arg(va, uint);
 	uint arg2 = va_arg(va, uint);
 	va_end(va);
@@ -513,7 +569,11 @@ static int track_cmd(fav_track *t, uint cmd, ...) {
 	case FAV_TRACK_STOP:
 	case FAV_TRACK_QUIT:
 	case FAV_TRACK_WINDOW:
-		if (cmd == FAV_TRACK_WINDOW && (flags & 4)) {
+		if (cmd == FAV_TRACK_WINDOW && (flags & 8)) {
+			t->redraw = 1;
+			break;
+
+		} else if (cmd == FAV_TRACK_WINDOW && (flags & 4)) {
 			uint rw = arg2 & 0xffff, rh = arg2 >> 16;
 			uint w = t->dec.video_width(), h = t->dec.video_height();
 			// rw / rh := w / h
@@ -543,22 +603,12 @@ static int track_cmd(fav_track *t, uint cmd, ...) {
 		return t->error;
 
 	case FAV_TRACK_PAUSE:
-		t->paused = !t->paused;
-		t->a.pause(t->paused);
-		if (!t->paused)
-			t->sync.reset();
+		t->pause_toggle();
 		break;
 
-	case FAV_TRACK_FULLSCREEN: {
-		uint w = t->dec.video_width(), h = t->dec.video_height();
-		t->v.fullscreen(!t->v.fullscreen());
-		if (!t->v.fullscreen()) {
-			w = w * t->vzoom / 100;
-			h = h * t->vzoom / 100;
-		}
-		t->v.texture_rect(0, 0, w, h);
+	case FAV_TRACK_FULLSCREEN:
+		t->fullscreen_toggle();
 		break;
-	}
 
 	case FAV_TRACK_ZOOM:
 		if (t->v.fullscreen())
@@ -588,13 +638,14 @@ static int track_cmd(fav_track *t, uint cmd, ...) {
 		t->audio_stream_switch();  break;
 
 	case FAV_TRACK_SEEK:
-		if (flags & 0x30) {
+		if (flags & (0x10|0x20)) {
 			if (flags & 0x10) {
-				t->loop_start = t->sync.pos() / 1000;
+				t->loop_start = ((t->sync.pos() - 500000) / 1000000) * 1000;
 			} else {
-				t->loop_end = t->sync.pos() / 1000;
+				t->loop_end = ((t->sync.pos() + 1000000) / 1000000) * 1000;
 				char buf1[64], buf2[64];
-				infolog(t, "{%s %s}"
+				infolog(t, "range: \"%s\"  %s %s"
+					, t->conf.input.url
 					, time_print(t->loop_start, buf1, sizeof(buf1))
 					, time_print(t->loop_end, buf2, sizeof(buf2)));
 			}

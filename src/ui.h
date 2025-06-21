@@ -3,6 +3,7 @@
 
 #include <ffsys/perf.h>
 #include <util/SDL.hpp>
+#include <ffbase/stringz.h>
 
 struct ui {
 	uint flags;
@@ -69,6 +70,7 @@ int user_events() {
 
 		uint cmd = ~0U;
 		int arg1 = 0, arg2 = 0;
+		void *arg1_ptr = NULL;
 		switch (e->type) {
 		case SDL_EVENT_KEY_DOWN:
 
@@ -120,8 +122,14 @@ int user_events() {
 			cmd = FAV_TRACK_VOLUME, arg1 = (e->wheel.y >= 0);
 			break;
 
+		case SDL_EVENT_DROP_FILE:
+			cmd = FAV_TRACK_ADD;  arg1_ptr = ffsz_dup(e->drop.data);  break;
+
 		case SDL_EVENT_WINDOW_RESIZED:
 			cmd = FAV_TRACK_WINDOW, arg1 = 4, arg2 = e->display.data1 | (e->display.data2 << 16);  break;
+
+		case SDL_EVENT_WINDOW_EXPOSED:
+			cmd = FAV_TRACK_WINDOW, arg1 = 8;  break;
 
 		case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
 			cmd = FAV_TRACK_STOP;  break;
@@ -132,7 +140,10 @@ process:
 			assert(wnd[i]);
 			fav_track *t = core->track->find(wnd[i]);
 			assert(t);
-			core->track->cmd(t, cmd, arg1, arg2);
+			if (cmd == FAV_TRACK_ADD)
+				core->track->cmd(t, cmd, arg1_ptr);
+			else
+				core->track->cmd(t, cmd, arg1, arg2);
 		}
 	}
 	return 0;

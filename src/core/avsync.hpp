@@ -22,6 +22,7 @@ struct avsync {
 		a_sig_next = ~0ULL;
 	}
 
+	// usec
 	uint64_t pos() const {
 		if (master == 1)
 			return ffmax((int64_t)(ts_next[1] - a_buf_usec), 0);
@@ -42,6 +43,7 @@ struct avsync {
 		a_active = 1;
 	}
 
+	// ts, dur: usec
 	void frame(uint64_t ts, uint dur, uint flags) {
 		int i = !!(flags & 1);
 

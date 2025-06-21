@@ -17,6 +17,7 @@ Options:\n\
   -seek TIME        Seek to time: [[HH:]MM:]SS[.MSC]\n\
   -until TIME       Stop at time\n\
   -repeat           Repeat all input files\n\
+  -poe              Pause at the end\n\
 \n\
   -zoom PERCENT     Zoom window\n\
 \n\
@@ -65,6 +66,7 @@ static const struct ffarg cmd_root[] = {
 	{ "-nodisplay",	'1',	O(no_display) },
 	{ "-nosound",	'1',	O(no_sound) },
 	{ "-parallel",	'u',	O(parallel) },
+	{ "-poe",		'1',	O(pause_on_end) },
 	{ "-repeat",	'1',	O(repeat) },
 	{ "-seek",		'S',	(void*)arg_seek },
 	{ "-until",		'S',	(void*)arg_until },
