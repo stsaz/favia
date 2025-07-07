@@ -49,10 +49,10 @@ do { \
 } while (0)
 
 
-#define SEEK_STEP_SEC  10
+#define SEEK_STEP_SEC  5
 #define SEEK_LEAP_SEC  60
 #define SEEK_LEAP_PCT  5
-#define AVQ_SIZE_MAX  256
+#define AVQ_SIZE_MAX  128
 
 struct tracks {
 	xxvec tracks; // fav_track*[]
@@ -460,39 +460,48 @@ struct fav_track {
 		}
 		have_pkt = 0;
 
-		if (pkt.stream_index() == dec.video_stream) {
-			if (!(f = vq->push())) {
-				dbglog(this, "video queue full");
-				input_full = 1;
-				have_pkt = 1;
-				return 0;
+		for (;;) {
+			if (pkt.stream_index() == dec.video_stream) {
+				if (!(f = vq->push())) {
+					dbglog(this, "video queue full");
+					input_full = 1;
+					have_pkt = 1;
+					return 0;
+				}
+
+				if ((r = dec.video_decode(pkt, &f->frame))) {
+					vq->pop();
+					if (r > 0)
+						break; // this packet is completely processed
+					errlog(this, "Video packet decode: %s", dec.error());
+					return 0;
+				}
+
+				f->ts = dec.video_time_base() * pkt.pts() * 1000000;
+				f->dur = dec.video_time_base() * pkt.duration() * 1000000;
+
+			} else if (pkt.stream_index() == dec.audio_stream) {
+				if (!(f = aq->push())) {
+					dbglog(this, "audio queue full");
+					input_full = 2;
+					have_pkt = 1;
+					return 0;
+				}
+
+				if ((r = dec.audio_decode(pkt, &f->frame))) {
+					aq->pop();
+					if (r > 0)
+						break; // this packet is completely processed
+					errlog(this, "Audio packet decode: %s", dec.error());
+					return 0;
+				}
+
+				f->ts = dec.audio_time_base() * pkt.pts() * 1000000;
+				f->dur = dec.audio_time_base() * pkt.duration() * 1000000;
+
+			} else {
+				break;
 			}
-
-			if (!dec.video_decode(pkt, &f->frame)) {
-				errlog(this, "Video packet decode: %s", dec.error());
-				vq->pop();
-				return 0;
-			}
-
-			f->ts = dec.video_time_base() * pkt.pts() * 1000000;
-			f->dur = dec.video_time_base() * pkt.duration() * 1000000;
-
-		} else if (pkt.stream_index() == dec.audio_stream) {
-			if (!(f = aq->push())) {
-				dbglog(this, "audio queue full");
-				input_full = 2;
-				have_pkt = 1;
-				return 0;
-			}
-
-			if (!dec.audio_decode(pkt, &f->frame)) {
-				errlog(this, "Audio packet decode: %s", dec.error());
-				aq->pop();
-				return 0;
-			}
-
-			f->ts = dec.audio_time_base() * pkt.pts() * 1000000;
-			f->dur = dec.audio_time_base() * pkt.duration() * 1000000;
 		}
 
 		return 0;

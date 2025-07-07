@@ -54,6 +54,7 @@ struct ffmpeg_dec {
 	AVBufferRef *hw_device_ctx;
 	enum AVPixelFormat hw_pix_fmt;
 	AVFrame *hw_frame;
+	int reading_frames;
 
 	const char *err_func;
 	int error_code;
@@ -74,6 +75,8 @@ int ffmpeg_dec_seek(ffmpeg_dec *d, uint64_t pos);
 /**
 Return 0: success; 1: EOF; <0: error */
 int ffmpeg_dec_pkt_read(ffmpeg_dec *d, ffmpeg_packet *p);
+/**
+Return 0: success; 1: packet decoding is complete; <0: error */
 int ffmpeg_dec_video_decode(ffmpeg_dec *d, ffmpeg_packet *p, ffmpeg_frame *f);
 int ffmpeg_dec_audio_decode(ffmpeg_dec *d, ffmpeg_packet *p, ffmpeg_frame *f);
 int ffmpeg_dec_hwaccel_enable(ffmpeg_dec *d, const char *hwaccel);
@@ -94,8 +97,8 @@ struct xxffmpeg_dec : ffmpeg_dec {
 	bool open(ffmpeg_io_read read, ffmpeg_io_seek seek, void *opaque) { return !ffmpeg_dec_open(this, read, seek, opaque, 0); }
 	bool seek(uint64_t pos) { return ffmpeg_dec_seek(this, pos); }
 	int read(ffmpeg_packet *p) { return ffmpeg_dec_pkt_read(this, p); }
-	bool video_decode(ffmpeg_packet &p, ffmpeg_frame *f) { return !ffmpeg_dec_video_decode(this, &p, f); }
-	bool audio_decode(ffmpeg_packet &p, ffmpeg_frame *f) { return !ffmpeg_dec_audio_decode(this, &p, f); }
+	int video_decode(ffmpeg_packet &p, ffmpeg_frame *f) { return ffmpeg_dec_video_decode(this, &p, f); }
+	int audio_decode(ffmpeg_packet &p, ffmpeg_frame *f) { return ffmpeg_dec_audio_decode(this, &p, f); }
 
 	// msec
 	uint64_t duration() const { return fmt->duration / 1000; }

@@ -35,7 +35,7 @@ favia -zoom 50 -mute -parallel 4 *.mp4
 | `q`          | Quit |
 | `n/p`        | Next/Previous input file |
 | `Space`      | Pause/Resume |
-| `[Ctrl+]Left/Right` | Seek |
+| `[Ctrl+|Ctrl+Shift+]Left/Right` | Seek |
 | `Shift+Del`  | Move source file to Trash |
 | Video:       | |
 | `+/- or Ctrl+MouseWheel` | Zoom |

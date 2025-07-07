@@ -125,6 +125,7 @@ int ffmpeg_dec_audio_stream_switch(ffmpeg_dec *d)
 
 	if ((r = avcodec_open2(d->acodecx, d->acodec, NULL)) < 0)
 		return ERR(d, r, "avcodec_open2()");
+	d->reading_frames &= ~2;
 	return 0;
 }
 
@@ -132,6 +133,7 @@ int ffmpeg_dec_seek(ffmpeg_dec *d, uint64_t pos) {
 	int r;
 	if ((r = avformat_seek_file(d->fmt, -1, pos, pos, pos, 0)) < 0)
 		return ERR(d, r, "avformat_seek_file()");
+	d->reading_frames = 0;
 	return 0;
 }
 
@@ -186,15 +188,22 @@ int ffmpeg_dec_hwaccel_enable(ffmpeg_dec *d, const char *hwaccel) {
 
 int ffmpeg_dec_video_decode(ffmpeg_dec *d, ffmpeg_packet *p, ffmpeg_frame *f) {
 	int r;
-	if ((r = avcodec_send_packet(d->vcodecx, p->pkt)) < 0)
-		return ERR(d, r, "avcodec_send_packet()");
 
-	av_frame_unref(f->frame);
-	if ((r = avcodec_receive_frame(d->vcodecx, f->frame)) < 0)
+	if (!(d->reading_frames & 1)
+		&& (r = avcodec_send_packet(d->vcodecx, p->pkt)))
+		return ERR(d, r, "avcodec_send_packet()");
+	d->reading_frames |= 1;
+
+	if ((r = avcodec_receive_frame(d->vcodecx, f->frame))) {
+		if (r == AVERROR(EAGAIN)) {
+			d->reading_frames &= ~1;
+			return 1;
+		}
+
 		return ERR(d, r, "avcodec_receive_frame()");
+	}
 
 	if (f->frame->format == d->hw_pix_fmt) {
-		av_frame_unref(d->hw_frame);
 		d->hw_frame->format = AV_PIX_FMT_YUV420P;
 		if ((r = av_hwframe_transfer_data(d->hw_frame, f->frame, 0)) < 0) {
 			av_frame_unref(f->frame);
@@ -203,6 +212,7 @@ int ffmpeg_dec_video_decode(ffmpeg_dec *d, ffmpeg_packet *p, ffmpeg_frame *f) {
 		void *tmp = f->frame;
 		f->frame = d->hw_frame;
 		d->hw_frame = tmp;
+		av_frame_unref(d->hw_frame);
 	}
 
 	return 0;
@@ -210,12 +220,20 @@ int ffmpeg_dec_video_decode(ffmpeg_dec *d, ffmpeg_packet *p, ffmpeg_frame *f) {
 
 int ffmpeg_dec_audio_decode(ffmpeg_dec *d, ffmpeg_packet *p, ffmpeg_frame *f) {
 	int r;
-	if ((r = avcodec_send_packet(d->acodecx, p->pkt)) < 0)
-		return ERR(d, r, "avcodec_send_packet()");
 
-	av_frame_unref(f->frame);
-	if ((r = avcodec_receive_frame(d->acodecx, f->frame)) < 0)
+	if (!(d->reading_frames & 2)
+		&& (r = avcodec_send_packet(d->acodecx, p->pkt)))
+		return ERR(d, r, "avcodec_send_packet()");
+	d->reading_frames |= 2;
+
+	if ((r = avcodec_receive_frame(d->acodecx, f->frame))) {
+		if (r == AVERROR(EAGAIN)) {
+			d->reading_frames &= ~2;
+			return 1;
+		}
+
 		return ERR(d, r, "avcodec_receive_frame()");
+	}
 
 	return 0;
 }
