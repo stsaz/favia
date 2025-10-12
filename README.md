@@ -35,7 +35,7 @@ favia -zoom 50 -mute -parallel 4 *.mp4
 | `q`          | Quit |
 | `n/p`        | Next/Previous input file |
 | `Space`      | Pause/Resume |
-| `[Ctrl+|Ctrl+Shift+]Left/Right` | Seek |
+| `[Ctrl+/Ctrl+Shift+]Left/Right` | Seek |
 | `Shift+Del`  | Move source file to Trash |
 | Video:       | |
 | `+/- or Ctrl+MouseWheel` | Zoom |
@@ -58,6 +58,6 @@ git clone https://github.com/stsaz/ffsys
 git clone https://github.com/stsaz/ffaudio
 git clone https://github.com/stsaz/favia
 cd favia
-bash xbuild-debianBW.sh
+bash xbuild.sh
 # ./_linux-amd64/favia-0/favia file.mp4
 ```
