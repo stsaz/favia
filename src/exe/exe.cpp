@@ -21,6 +21,7 @@ struct exe {
 
 	const char *hwaccel;
 	u_char debug;
+	u_char fullscreen;
 	u_char mute;
 	u_char no_display;
 	u_char no_sound;
@@ -87,6 +88,7 @@ static fav_track* trk_new(const char *url) {
 		},
 		.video = {
 			.zoom = (ushort)x->zoom,
+			.fullscreen = x->fullscreen,
 		},
 		.audio = {
 			.volume = (u_char)x->volume,
@@ -122,6 +124,10 @@ static void exe_signal(fav_track *trk, uint cmd, uint flags) {
 			return;
 		next = 1; // stop this track, start next
 		break;
+
+	case FAV_TRACK_FULLSCREEN:
+		x->fullscreen = !!(flags & 1);
+		return;
 
 	case FAV_TRACK_WINDOW:
 		if (!x->parallel)

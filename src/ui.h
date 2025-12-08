@@ -11,16 +11,17 @@ struct ui {
 };
 static struct ui ui;
 
-static struct {
+struct ui_key {
 	int key, mod, cmd, arg1;
-} ui_keymap[] = {
+};
+static struct ui_key ui_keymap[] = {
 	{ SDLK_DOWN,		0,								FAV_TRACK_VOLUME, 0 },
 	{ SDLK_LEFT, 		0,								FAV_TRACK_SEEK, 2 },
-	{ SDLK_LEFT, 		SDL_KMOD_CTRL,					FAV_TRACK_SEEK, 1|2 },
-	{ SDLK_LEFT, 		SDL_KMOD_CTRL | SDL_KMOD_SHIFT,	FAV_TRACK_SEEK, 4|2 },
+	{ SDLK_LEFT, 		SDL_KMOD_CTRL,					FAV_TRACK_SEEK, FAV_TRACK_SEEK_LEAP|FAV_TRACK_SEEK_REVERSE },
+	{ SDLK_LEFT, 		SDL_KMOD_CTRL | SDL_KMOD_SHIFT,	FAV_TRACK_SEEK, FAV_TRACK_SEEK_LEAP_PERCENT|FAV_TRACK_SEEK_REVERSE },
 	{ SDLK_RIGHT, 		0,								FAV_TRACK_SEEK, 0 },
-	{ SDLK_RIGHT, 		SDL_KMOD_CTRL,					FAV_TRACK_SEEK, 1 },
-	{ SDLK_RIGHT, 		SDL_KMOD_CTRL | SDL_KMOD_SHIFT,	FAV_TRACK_SEEK, 4 },
+	{ SDLK_RIGHT, 		SDL_KMOD_CTRL,					FAV_TRACK_SEEK, FAV_TRACK_SEEK_LEAP },
+	{ SDLK_RIGHT, 		SDL_KMOD_CTRL | SDL_KMOD_SHIFT,	FAV_TRACK_SEEK, FAV_TRACK_SEEK_LEAP_PERCENT },
 	{ SDLK_UP,			0,								FAV_TRACK_VOLUME, 1 },
 
 	{ SDLK_EQUALS,		SDL_KMOD_CTRL | SDL_KMOD_SHIFT,	FAV_TRACK_WINDOW, 1 },
@@ -30,8 +31,8 @@ static struct {
 	{ SDLK_SPACE,		0,								FAV_TRACK_PAUSE, 0 },
 	{ SDLK_TAB,			0,								FAV_TRACK_WINDOW, 2 },
 	{ SDLK_DELETE,		SDL_KMOD_SHIFT,					FAV_TRACK_SOURCE, 0 },
-	{ SDLK_LEFTBRACKET,	0,								FAV_TRACK_SEEK, 0x10 },
-	{ SDLK_RIGHTBRACKET,0,								FAV_TRACK_SEEK, 0x20 },
+	{ SDLK_LEFTBRACKET,	0,								FAV_TRACK_SEEK, FAV_TRACK_SEEK_LOOP },
+	{ SDLK_RIGHTBRACKET,0,								FAV_TRACK_SEEK, FAV_TRACK_SEEK_LOOP|FAV_TRACK_SEEK_REVERSE },
 
 	{ SDLK_KP_MINUS,	0,								FAV_TRACK_ZOOM, 0 },
 	{ SDLK_KP_MINUS,	SDL_KMOD_CTRL,					FAV_TRACK_WINDOW, 0 },
@@ -49,12 +50,13 @@ static struct {
 static uint key_find(int k, int m, int *arg1)
 {
 	for (uint i = 0;  i < FF_COUNT(ui_keymap);  i++) {
-		if (k == ui_keymap[i].key
-			&& (!(m | ui_keymap[i].mod)
-				|| ((m & ui_keymap[i].mod)
-					&& !(m & ~ui_keymap[i].mod)))) {
-			*arg1 = ui_keymap[i].arg1;
-			return ui_keymap[i].cmd;
+		const struct ui_key *uk = &ui_keymap[i];
+		if (k == uk->key
+			&& (!(m | uk->mod)
+				|| ((m & uk->mod)
+					&& !(m & ~uk->mod)))) {
+			*arg1 = uk->arg1;
+			return uk->cmd;
 		}
 	}
 	return ~0U;

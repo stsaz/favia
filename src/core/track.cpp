@@ -179,7 +179,9 @@ struct fav_track {
 				return 1;
 			}
 
-			if (conf.video.zoom)
+			if (conf.video.fullscreen)
+				this->fullscreen_toggle();
+			else if (conf.video.zoom)
 				this->zoom(conf.video.zoom);
 
 			v.show();
@@ -233,7 +235,7 @@ struct fav_track {
 		v.texture_rect(0, 0, w, h);
 	}
 
-	void fullscreen_toggle() {
+	bool fullscreen_toggle() {
 		uint w = this->dec.video_width(), h = this->dec.video_height();
 		uint fs = this->v.fullscreen();
 		this->v.fullscreen(!fs);
@@ -243,6 +245,7 @@ struct fav_track {
 		}
 		this->v.texture_rect(0, 0, w, h);
 		this->redraw = 1;
+		return !fs;
 	}
 
 	void mute_toggle() {
@@ -616,7 +619,8 @@ static int track_cmd(fav_track *t, uint cmd, ...) {
 		break;
 
 	case FAV_TRACK_FULLSCREEN:
-		t->fullscreen_toggle();
+		r = t->fullscreen_toggle();
+		core->conf.signal(t, cmd, r);
 		break;
 
 	case FAV_TRACK_ZOOM:
@@ -647,11 +651,11 @@ static int track_cmd(fav_track *t, uint cmd, ...) {
 		t->audio_stream_switch();  break;
 
 	case FAV_TRACK_SEEK:
-		if (flags & (0x10|0x20)) {
-			if (flags & 0x10) {
-				t->loop_start = ((t->sync.pos() - 500000) / 1000000) * 1000;
+		if (flags & FAV_TRACK_SEEK_LOOP) {
+			if (!(flags & FAV_TRACK_SEEK_REVERSE)) {
+				t->loop_start = (t->sync.pos() - 500000) / 1000;
 			} else {
-				t->loop_end = ((t->sync.pos() + 1000000) / 1000000) * 1000;
+				t->loop_end = (t->sync.pos() + 500000) / 1000;
 				char buf1[64], buf2[64];
 				infolog(t, "range: \"%s\"  %s %s"
 					, t->conf.input.url
@@ -660,11 +664,12 @@ static int track_cmd(fav_track *t, uint cmd, ...) {
 			}
 			break;
 		}
-		if (flags & 4)
+
+		if (flags & FAV_TRACK_SEEK_LEAP_PERCENT)
 			r = t->dec.duration()/1000 * SEEK_LEAP_PCT / 100;
 		else
-			r = !(flags & 1) ? SEEK_STEP_SEC : SEEK_LEAP_SEC;
-		if (flags & 2)
+			r = !(flags & FAV_TRACK_SEEK_LEAP) ? SEEK_STEP_SEC : SEEK_LEAP_SEC;
+		if (flags & FAV_TRACK_SEEK_REVERSE)
 			r = -r;
 		t->seek(t->sync.pos()/1000 + r * 1000);
 		break;

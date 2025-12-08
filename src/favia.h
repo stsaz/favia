@@ -1,7 +1,7 @@
 /** favia
 2025, Simon Zolin */
 
-#define FAV_VER  102
+#define FAV_VER  104
 
 #include <ffsys/base.h>
 #include <stdint.h>
@@ -69,6 +69,7 @@ struct fav_track_conf {
 
 	struct {
 		ushort zoom;
+		uint fullscreen :1;
 	} video;
 
 	struct {
@@ -89,6 +90,13 @@ enum FAV_TRACK_E {
 	FAV_TRACK_E_INIT,
 	FAV_TRACK_E_IO,
 	FAV_TRACK_E_OTHER,
+};
+
+enum FAV_TRACK_CMD_ARG {
+	FAV_TRACK_SEEK_REVERSE = 1,
+	FAV_TRACK_SEEK_LEAP = 2,
+	FAV_TRACK_SEEK_LEAP_PERCENT = 4,
+	FAV_TRACK_SEEK_LOOP = 8,
 };
 
 enum FAV_TRACK_CMD {

@@ -11,11 +11,8 @@ if ! test -d "../favia" ; then
 	exit 1
 fi
 
-if ! podman container exists $CONTAINER_NAME ; then
-	if ! podman image exists $IMAGE_NAME ; then
-
-		# Create builder image
-		cat <<EOF | podman build -t $IMAGE_NAME -f - .
+image_linux() {
+	cat <<EOF | podman build -t $IMAGE_NAME -f - .
 FROM debian:bookworm-slim
 RUN apt update && \
  apt install -y \
@@ -25,6 +22,12 @@ RUN apt install -y \
 RUN apt install -y \
  libva-dev
 EOF
+}
+
+if ! podman container exists $CONTAINER_NAME ; then
+	if ! podman image exists $IMAGE_NAME ; then
+		# Create builder image
+		image_linux
 	fi
 
 	# Create builder container
