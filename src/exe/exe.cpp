@@ -4,7 +4,9 @@
 #include <favia.h>
 #include <util/util.hpp>
 #include <ffsys/signal.h>
+#include <ffsys/dirscan.h>
 #include <ffsys/globals.h>
+#include <ffbase/fntree.h>
 
 FF_EXTERN fav_core_if* core_init(struct fav_core_conf *conf);
 FF_EXTERN void core_destroy();
@@ -19,6 +21,7 @@ struct exe {
 	uint cursor, n_tracks;
 	uint exit_code;
 
+	const char *cmd_line;
 	const char *hwaccel;
 	u_char debug;
 	u_char fullscreen;
@@ -33,6 +36,77 @@ struct exe {
 	uint64_t seek_msec, until_msec;
 	xxvec input; // const char*[]
 	struct ffargs *cmd;
+
+	uint use_color :1;
+
+	int dir_read(const char *fn, uint ins_pos) {
+		int rc = 1;
+		ffdirscan ds = {};
+		fntree_block *root = NULL, *blk;
+		char *fpath = NULL;
+		fntree_cursor cur = {};
+
+		if (ffdirscan_open(&ds, fn, 0))
+			goto end;
+
+		if (!(root = fntree_from_dirscan(FFSTR_Z(fn), &ds, 0)))
+			goto end;
+		blk = root;
+		ffdirscan_close(&ds);
+
+		for (;;) {
+			fntree_entry *e;
+			if (!(e = fntree_cur_next_r_ctx(&cur, &blk)))
+				break;
+
+			ffstr path = fntree_path(blk);
+			ffstr name = fntree_name(e);
+			ffmem_free(fpath);
+			fpath = ffsz_allocfmt("%S%c%S", &path, FFPATH_SLASH, &name);
+
+			xxfileinfo fi;
+			if (fffile_info_path(fpath, &fi.info))
+				continue;
+			if (fi.dir()) {
+				ffmem_zero_obj(&ds);
+				if (ffdirscan_open(&ds, fpath, 0))
+					continue;
+
+				ffstr_setz(&path, fpath);
+				if (!(blk = fntree_from_dirscan(path, &ds, 0)))
+					continue;
+				ffdirscan_close(&ds);
+
+				fntree_attach(e, blk);
+				continue;
+			}
+
+			this->input.insert<char*>(fpath, ins_pos++);
+			dbglog("input queue: add \"%s\"", fpath);
+			fpath = NULL;
+		}
+
+		rc = 0;
+
+	end:
+		ffmem_free(fpath);
+		ffdirscan_close(&ds);
+		fntree_free_all(root);
+		return rc;
+	}
+
+	const char* input_get() {
+		while (this->cursor < this->input.len) {
+			const char *fn = *this->input.at<char*>(this->cursor);
+			if (xxfile::info(fn).dir()) {
+				this->input.remove<char*>(this->cursor, 1);
+				dir_read(fn, this->cursor);
+				continue;
+			}
+			return fn;
+		}
+		return NULL;
+	}
 
 	int cursor_move(int delta) {
 		int i = cursor + delta;
@@ -51,6 +125,11 @@ struct exe {
 };
 static struct exe *x;
 
+static void logs() {
+	int r = ffstd_attr(ffstdout, FFSTD_VTERM, FFSTD_VTERM);
+	x->use_color = !r;
+}
+
 #include <exe/cmd.hpp>
 
 static void core_open() {
@@ -62,8 +141,13 @@ static void core_open() {
 	core = core_init(&cc);
 }
 
+#ifdef FF_WIN
+#define OS_NAME "windows"
+#else
+#define OS_NAME "linux"
+#endif
 static void version_print() {
-	ffstdout_fmt("favia v%s (" "linux" "-" "amd64" ")\n"
+	ffstdout_fmt("favia v%s (" OS_NAME "-" "amd64" ")\n"
 		, core->version_str);
 }
 
@@ -105,7 +189,11 @@ static void exe_iq_start(void *param) {
 	exe *x = (exe*)param;
 
 	for (;;) {
-		fav_track *t = trk_new(*x->input.at<char*>(x->cursor));
+		const char *fn = x->input_get();
+		if (!fn)
+			break;
+
+		fav_track *t = trk_new(fn);
 		x->n_tracks++;
 		if (!x->parallel)
 			break;
@@ -185,7 +273,12 @@ int main(int argc, char **argv)
 {
 	int r = 1;
 	x = ffmem_new(struct exe);
-	if (cmd(argc, argv)) goto end;
+	logs();
+
+#ifdef FF_WIN
+	x->cmd_line = ffsz_alloc_wtou(GetCommandLineW());
+#endif
+	if (cmd(argc, argv, x->cmd_line)) goto end;
 
 	core_open();
 	version_print();

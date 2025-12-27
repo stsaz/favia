@@ -6,7 +6,7 @@
 #undef main // Prevent SDL from overriding main()
 #include <libavformat/avformat.h>
 
-static inline int sdl_init(uint init)
+static inline int sdl_init(unsigned init)
 {
 	if (!init) {
 		SDL_Quit();
@@ -16,7 +16,7 @@ static inline int sdl_init(uint init)
 	return !SDL_Init(SDL_INIT_VIDEO);
 }
 
-static inline int sdl_read_events(SDL_Event *events, uint cap, SDL_Window *windows[])
+static inline int sdl_read_events(SDL_Event *events, unsigned cap, SDL_Window *windows[])
 {
 	SDL_PumpEvents();
 	int n = SDL_PeepEvents(events, cap, SDL_GETEVENT, SDL_EVENT_FIRST, SDL_EVENT_LAST);
@@ -62,7 +62,7 @@ static inline SDL_PixelFormat format_sdl_av(int av_format, SDL_BlendMode *blendm
 		{ AV_PIX_FMT_UYVY422,	SDL_PIXELFORMAT_UYVY },
 	};
 
-	for (uint i = 0;  i < FF_ARRAY_ELEMS(texture_format_map) - 1;  i++) {
+	for (unsigned i = 0;  i < FF_ARRAY_ELEMS(texture_format_map) - 1;  i++) {
 		if (av_format == texture_format_map[i].av_format)
 			return texture_format_map[i].sdl_format;
 	}
@@ -92,8 +92,8 @@ struct xxsdl {
 		SDL_DestroyTexture(texture);
 	}
 
-	bool open(uint width, uint height, const char *title) {
-		uint f = SDL_WINDOW_HIDDEN | SDL_WINDOW_RESIZABLE;
+	bool open(unsigned width, unsigned height, const char *title) {
+		unsigned f = SDL_WINDOW_HIDDEN | SDL_WINDOW_RESIZABLE;
 		if (!(window = SDL_CreateWindow(title, width, height, f)))
 			return error("SDL_CreateWindow()");
 
@@ -105,7 +105,7 @@ struct xxsdl {
 	}
 
 	void title(const char *s) { SDL_SetWindowTitle(window, s); }
-	void window_size(uint w, uint h) { SDL_SetWindowSize(window, w, h); }
+	void window_size(unsigned w, unsigned h) { SDL_SetWindowSize(window, w, h); }
 	void show() { SDL_ShowWindow(window); }
 	void present() { SDL_RaiseWindow(window); }
 
@@ -150,12 +150,10 @@ struct xxsdl {
 		return 1;
 	}
 
-	bool display(const AVFrame *frame) {
+	bool display(const AVFrame *frame, SDL_PixelFormat format, SDL_BlendMode blendmode) {
 		SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
 		SDL_RenderClear(renderer);
 
-		SDL_BlendMode blendmode;
-		SDL_PixelFormat format = format_sdl_av(frame->format, &blendmode);
 		if (!texture
 			|| frame->width != texture->w
 			|| frame->height != texture->h
@@ -169,17 +167,17 @@ struct xxsdl {
 		if (!this->texture_convert(format, frame))
 			return 0;
 
-		SDL_RenderTextureRotated(renderer, texture, NULL, &_rect, 0, NULL, SDL_FLIP_NONE);
+		SDL_RenderTextureRotated(renderer, texture, NULL, &rect, 0, NULL, SDL_FLIP_NONE);
 		SDL_RenderPresent(renderer);
 		return 1;
 	}
 
-	SDL_FRect _rect;
-	void texture_rect(uint x, uint y, uint w, uint h) {
-		_rect.x = x;
-		_rect.y = y;
-		_rect.w = w;
-		_rect.h = h;
+	SDL_FRect rect;
+	void texture_rect(unsigned x, unsigned y, unsigned w, unsigned h) {
+		rect.x = x;
+		rect.y = y;
+		rect.w = w;
+		rect.h = h;
 	}
 };
 

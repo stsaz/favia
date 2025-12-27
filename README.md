@@ -1,11 +1,11 @@
 # favia (alpha)
 
-favia is a Fast Video App for Linux based on ffmpeg and SDL.
+favia is a fast video player for Linux & Windows based on ffmpeg and SDL.
 
 
 ## Features & limitations
 
-* Play video files with hardware decoding (VAAPI/Linux); limited range of supported formats, no subtitles
+* Play video files with hardware decoding (VAAPI/Linux, D3D11/Windows); limited range of supported formats, no subtitles
 
 
 ## Install
@@ -60,4 +60,11 @@ git clone https://github.com/stsaz/favia
 cd favia
 bash xbuild.sh
 # ./_linux-amd64/favia-0/favia file.mp4
+```
+
+## Build for Windows
+
+```sh
+...
+OS=windows bash xbuild.sh
 ```

@@ -6,6 +6,7 @@
 #include <ffsys/base.h>
 #include <stdint.h>
 typedef unsigned int uint;
+typedef unsigned short ushort;
 typedef unsigned char u_char;
 
 typedef struct fav_track_if fav_track_if;

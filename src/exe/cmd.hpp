@@ -4,29 +4,52 @@
 #include <ffsys/std.h>
 #include <ffbase/args.h>
 
+static void help_info_write(const char *sz)
+{
+	ffstr s = FFSTR_INITZ(sz), l, k;
+	ffvec v = {};
+
+	const char *clr = FFSTD_CLR_B(FFSTD_PURPLE);
+	while (s.len) {
+		ffstr_splitby(&s, '`', &l, &s);
+		ffstr_splitby(&s, '`', &k, &s);
+		if (x->use_color) {
+			ffvec_addfmt(&v, "%S%s%S%s"
+				, &l, clr, &k, FFSTD_CLR_RESET);
+		} else {
+			ffvec_addfmt(&v, "%S%S"
+				, &l, &k);
+		}
+	}
+
+	ffstdout_write(v.ptr, v.len);
+	ffvec_free(&v);
+}
+
 static int arg_help(struct exe *x) {
-	ffstdout_fmt("%s", "\
+	help_info_write("\
 Usage:\n\
     favia [OPTIONS] INPUT...\n\
 \n\
-INPUT               File name\n\
+INPUT               File or directory\n\
 \n\
 Options:\n\
-  -Debug            Enable debug logging\n\
+  `-Debug`            Enable debug logging\n\
 \n\
-  -seek TIME        Seek to time: [[HH:]MM:]SS[.MSC]\n\
-  -until TIME       Stop at time\n\
-  -repeat           Repeat all input files\n\
-  -poe              Pause at the end\n\
+  `-hwaccel` STR      Use specific hardware video decoding API\n\
+  `-seek` TIME        Seek to time: [[HH:]MM:]SS[.MSC]\n\
+  `-until` TIME       Stop at time\n\
+  `-repeat`           Repeat all input files\n\
+  `-poe`              Pause at the end\n\
 \n\
-  -zoom PERCENT     Zoom window\n\
+  `-zoom` PERCENT     Zoom window\n\
 \n\
-  -mute             Mute\n\
-  -volume PERCENT   Set audio volume\n\
+  `-mute`             Mute\n\
+  `-volume` PERCENT   Set audio volume\n\
 \n\
-  -parallel N       Play N files in parallel\n\
-  -nodisplay        Don't display video\n\
-  -nosound          Don't play audio\n\
+  `-parallel` N       Play N files in parallel\n\
+  `-nodisplay`        Don't display video\n\
+  `-nosound`          Don't play audio\n\
 ");
 	return 1;
 }
@@ -62,6 +85,7 @@ static const struct ffarg cmd_root[] = {
 	{ "-Debug",		'1',	O(debug) },
 
 	{ "-help",		'1',	(void*)arg_help },
+	{ "-hwaccel",	's',	O(hwaccel) },
 	{ "-mute",		'1',	O(mute) },
 	{ "-nodisplay",	'1',	O(no_display) },
 	{ "-nosound",	'1',	O(no_sound) },
@@ -78,13 +102,23 @@ static const struct ffarg cmd_root[] = {
 };
 #undef O
 
-int cmd(int argc, char **argv) {
+int cmd(int argc, char **argv, const char *cmd_line) {
 	x->hwaccel = "vaapi";
+#ifdef FF_WIN
+	x->hwaccel = "d3d11va";
+#endif
 
 	uint f = FFARGS_O_PARTIAL | FFARGS_O_DUPLICATES | FFARGS_O_SKIP_FIRST;
 	struct ffargs a = {};
 	x->cmd = &a;
-	int r = ffargs_process_argv(&a, cmd_root, x, f, argv, argc);
+	int r;
+
+#ifdef FF_WIN
+	r = ffargs_process_line(&a, cmd_root, x, f, cmd_line);
+#else
+	r = ffargs_process_argv(&a, cmd_root, x, f, argv, argc);
+#endif
+
 	if (r) {
 		exe_errlog("%s", a.error);
 		return r;

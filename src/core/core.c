@@ -17,6 +17,24 @@ FF_EXTERN int tracks_run();
 
 #include <ui.h>
 
+#ifdef FF_WIN
+static inline int ffthread_usleep(unsigned usec)
+{
+	Sleep(usec / 1000);
+	return 0;
+}
+
+#else
+static inline int ffthread_usleep(unsigned usec)
+{
+	struct timespec ts = {
+		.tv_sec = usec / 1000000,
+		.tv_nsec = (usec % 1000000) * 1000,
+	};
+	return nanosleep(&ts, NULL);
+}
+#endif
+
 int core_run() {
 	dbglog("entering worker loop");
 	while (!FFINT_READONCE(cx->stop)) {
@@ -27,7 +45,7 @@ int core_run() {
 		if (n > 0) {
 			n = ffmin(n, 20000);
 			dbglog("sleep %uus", n);
-			usleep(n);
+			ffthread_usleep(n);
 		}
 
 		if (user_events()) {

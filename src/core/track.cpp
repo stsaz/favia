@@ -1,15 +1,19 @@
 /** favia
 2025, Simon Zolin */
 
+#ifdef _WIN32
+#include <util/windows-shell.h>
+#else
+#include <util/unix-shell.h>
+#endif
 #include <favia.h>
 
 FF_EXTERN const fav_core_if *core;
 
 #include <util/ffmpeg.h>
 #include <util/SDL.hpp>
-#include <audio.hpp>
+#include <a/audio.hpp>
 #include <util/util.hpp>
-#include <util/unix-shell.h>
 #include <core/avsync.hpp>
 #include <ffsys/file.h>
 #include <ffsys/std.h>
@@ -83,15 +87,14 @@ struct fav_track {
 	audio a;
 	struct avsync sync;
 	xxffmpeg_packet pkt;
-	uint input_full, have_pkt, finished;
+	uint input_full, have_pkt;
 	int error;
 	char id[8];
 
 	uint64_t prev_pos_sec, loop_start, loop_end;
 	uint avolume;
 	uint vzoom;
-	uint paused;
-	uint amute :1;
+	uint state; // enum trk_state
 	uint redraw :1;
 
 	fav_track(){}
@@ -104,6 +107,12 @@ struct fav_track {
 		if (conf.url_transient)
 			ffmem_free((char*)conf.input.url);
 	}
+
+	enum trk_state {
+		TRK_FIN = 0x10,
+		TRK_PAUSED = 0x20,
+		TRK_MUTE = 0x40,
+	};
 
 	static int input_read(void *opaque, uint8_t *buf, int size)
 	{
@@ -156,12 +165,12 @@ struct fav_track {
 		char buf[64];
 		infolog(this, "\"%s\"  %.02FMB  %s  %u streams"
 			, conf.input.url
-			, (double)xxfile::info(conf.input.url).size() / (1024 * 1024)
+			, (double)input.info().size() / (1024 * 1024)
 			, time_print(dec.duration(), buf, sizeof(buf))
 			, dec.streams());
 
 		if (!dec.hwaccel_enable(conf.decoder.hw_accel))
-			warnlog(this, "HW decoding is inactive");
+			warnlog(this, "HW decoding is inactive: %s", dec.error());
 
 		sync.reset();
 
@@ -180,9 +189,9 @@ struct fav_track {
 			}
 
 			if (conf.video.fullscreen)
-				this->fullscreen_toggle();
+				fullscreen_toggle();
 			else if (conf.video.zoom)
-				this->zoom(conf.video.zoom);
+				zoom(conf.video.zoom);
 
 			v.show();
 		}
@@ -192,24 +201,29 @@ struct fav_track {
 			conf.no_sound = !a.open(dec);
 			sync.audio((a.buf_len_msec) ? a.buf_len_msec : 500);
 			if (conf.audio.volume)
-				this->volume(conf.audio.volume);
+				volume(conf.audio.volume);
 			if (conf.audio.mute)
-				this->mute_toggle();
+				mute_toggle();
 		}
 
 		vq = queue_alloc(16);
 		aq = queue_alloc(16);
 
 		if (conf.input.seek_msec)
-			this->seek(conf.input.seek_msec);
+			seek(conf.input.seek_msec);
 		return 0;
 	}
 
 	void pause_toggle() {
-		this->paused = !this->paused;
-		this->a.pause(this->paused);
-		if (!this->paused)
-			this->sync.reset();
+		uint p = !(state & TRK_PAUSED);
+		if (p)
+			state |= TRK_PAUSED;
+		else
+			state &= ~TRK_PAUSED;
+		if (!conf.no_sound)
+			a.pause(p);
+		if (!p)
+			sync.reset();
 	}
 
 	void seek(uint64_t pos_msec) {
@@ -218,12 +232,14 @@ struct fav_track {
 		if (!conf.no_sound)
 			a.clear();
 		sync.reset();
-		vq->reset();
-		aq->reset();
+		if (vq)
+			vq->reset();
+		if (aq)
+			aq->reset();
 		dec.seek(pos_msec * 1000);
-		this->have_pkt = 0;
-		this->input_full = 0;
-		this->finished = 0;
+		have_pkt = 0;
+		input_full = 0;
+		state &= ~TRK_FIN;
 	}
 
 	void zoom(uint n) {
@@ -236,22 +252,26 @@ struct fav_track {
 	}
 
 	bool fullscreen_toggle() {
-		uint w = this->dec.video_width(), h = this->dec.video_height();
-		uint fs = this->v.fullscreen();
-		this->v.fullscreen(!fs);
+		uint w = dec.video_width(), h = dec.video_height();
+		uint fs = v.fullscreen();
+		v.fullscreen(!fs);
 		if (fs) {
-			w = w * this->vzoom / 100;
-			h = h * this->vzoom / 100;
+			w = w * vzoom / 100;
+			h = h * vzoom / 100;
 		}
-		this->v.texture_rect(0, 0, w, h);
-		this->redraw = 1;
+		v.texture_rect(0, 0, w, h);
+		redraw = 1;
 		return !fs;
 	}
 
 	void mute_toggle() {
-		amute = !amute;
-		infolog(this, "Mute: %u", amute);
-		a.volume((amute) ? 0 : avolume);
+		uint m = !(state & TRK_MUTE);
+		if (m)
+			state |= TRK_MUTE;
+		else
+			state &= ~TRK_MUTE;
+		infolog(this, "Mute: %u", m);
+		a.volume((m) ? 0 : avolume);
 	}
 
 	void volume(uint n) {
@@ -294,14 +314,14 @@ struct fav_track {
 	void pkt_log(const xxffmpeg_packet &pkt) {
 		double tb = (pkt.stream_index() == dec.video_stream) ? dec.video_time_base() : dec.audio_time_base();
 		dbglog(this, "frame #%u  stream:%u  pts:%u  ts:%u  size:%u  dur:%u"
-			, this->iframe++, pkt.stream_index(), pkt.pts()
+			, iframe++, pkt.stream_index(), pkt.pts()
 			, (int)(tb * pkt.pts() * 1000000)
 			, pkt.size(), pkt.duration());
 	}
 
 	void pos_print(uint64_t pos_sec) {
-		if (pos_sec != this->prev_pos_sec) {
-			this->prev_pos_sec = pos_sec;
+		if (pos_sec != prev_pos_sec) {
+			prev_pos_sec = pos_sec;
 			char buf1[64], buf2[64];
 			ffstdout_fmt("\r[%s / %s]"
 				, time_print(pos_sec * 1000, buf1, sizeof(buf1))
@@ -310,7 +330,7 @@ struct fav_track {
 	}
 
 	bool until(uint64_t pos_msec) {
-		if (pos_msec >= this->conf.input.until_msec) {
+		if (pos_msec >= conf.input.until_msec) {
 			dbglog(this, "'until' time reached");
 			return 1;
 		}
@@ -320,66 +340,87 @@ struct fav_track {
 	int run() {
 		int r, n;
 		qframe *f;
+		enum { F_VIDEO = 1, F_AUDIO = 2, F_REDRAW = 4, };
 
 		if (!vq && init()) {
 			return done(FAV_TRACK_E_INIT);
 		}
 
-		if (this->paused && !this->redraw)
-			return 0x7fffffff;
+		r = 0;
+		if (redraw) {
+			redraw = 0;
+			dbglog(this, "redraw forced");
+			r = F_VIDEO | F_REDRAW;
+		}
 
 		for (;;) {
 
-			r = 0;
-			if (!this->paused) {
-				r = sync.read(&n);
+			n = 0x7fffffff;
+			if (!(state & TRK_PAUSED)) {
+				r |= sync.read(&n);
 				dbglog(this, "r:%u  VQ:%u  AQ:%u", r, vq->length(), aq->length());
 			}
 
-			if (this->redraw) {
-				this->redraw = 0;
-				r |= 1;
-			}
-
 			if (!r) {
-				// no action needed
-				if (input_full || finished)
+				if (input_full || (state & (TRK_FIN | TRK_PAUSED)))
 					return n;
 				break;
 			}
 
-			int want_input = 0;
+			uint want_input = 0;
 
-			if ((r & 1) && (f = vq->peek())) {
-
-				int rm = !this->paused;
-				if (!conf.no_display) {
-					if (!v.display(f->frame.frame)) {
-						errlog(this, "display: %s", v.error());
-						rm = 1;
+			if (r & F_VIDEO) {
+				if (!(r & F_REDRAW)) {
+					if (vq->length() < 2) {
+						want_input |= F_VIDEO;
+						goto v_done;
 					}
-				}
 
-				sync.frame(f->ts, f->dur, 0);
-
-				if (rm) {
+					// Draw next frame
+					f = vq->read();
 					f->unref();
-					vq->read();
-					if (input_full & 1) {
-						input_full &= ~1;
-					}
+					input_full &= ~F_VIDEO;
 				}
 
-				if (until(f->ts / 1000))
-					return done(0);
+				if ((f = vq->peek())) {
 
-				pos_print(f->ts / 1000000);
+					if (!conf.no_display) {
+						SDL_BlendMode blendmode;
+						SDL_PixelFormat format = format_sdl_av(f->frame.frame->format, &blendmode);
+						if (format == SDL_PIXELFORMAT_UNKNOWN) {
+							if (!dec.video_convert(&f->frame)) {
+								errlog(this, "Video frame convert: %s", dec.error());
+								f->unref();
+								vq->read();
+								input_full &= ~F_VIDEO;
+								goto v_done;
+							}
+							format = format_sdl_av(f->frame.frame->format, &blendmode);
+						}
+						dbglog(this, "AV-pixel-format:0x%xu  SDL-pixel-format:0x%xu", f->frame.frame->format, format);
 
-			} else if (r & 1) {
-				want_input |= 1;
+						if (!v.display(f->frame.frame, format, blendmode)) {
+							errlog(this, "display: %s", v.error());
+							f->unref();
+							vq->read();
+							input_full &= ~F_VIDEO;
+						}
+					}
+
+					sync.frame(f->ts, f->dur, 0);
+
+					if (until(f->ts / 1000))
+						return done(0);
+
+					pos_print(f->ts / 1000000);
+
+				} else {
+					want_input |= F_VIDEO;
+				}
 			}
+		v_done:
 
-			if ((r & 2) && (f = aq->peek())) {
+			if ((r & F_AUDIO) && (f = aq->peek())) {
 
 				int complete = conf.no_sound;
 				if (!conf.no_sound) {
@@ -395,46 +436,38 @@ struct fav_track {
 					f = aq->read();
 					f->unref();
 
-					if (input_full & 2) {
-						input_full &= ~2;
-					}
+					input_full &= ~F_AUDIO;
 
 					if (until(f->ts / 1000)) // TODO
 						return done(0);
 				}
 
-			} else if (r & 2) {
-				want_input |= 2;
+			} else if (r & F_AUDIO) {
+				want_input |= F_AUDIO;
 			}
 
 			if (want_input) {
 				dbglog(this, "VQ or AQ is empty");
 
-				if ((finished & 3) == 3) {
+				if (state & TRK_FIN) {
 					dbglog(this, "finished");
-
-					if (this->conf.pause_on_end) {
-						this->pause_toggle();
-						return 0;
-					}
-
 					return done(0);
 				}
 
-				if ((want_input & 1) && (input_full & 2)) {
+				if ((want_input & F_VIDEO) && (input_full & F_AUDIO)) {
 					if (aq->cap < AVQ_SIZE_MAX) {
 						aq = queue_realloc(aq, ffmin(aq->cap * 2, AVQ_SIZE_MAX));
-						input_full &= ~2;
+						input_full &= ~F_AUDIO;
 					} else {
 						warnlog(this, "need very large AQ");
 						have_pkt = 0;
 					}
 				}
 
-				if ((want_input & 2) && (input_full & 1)) {
+				if ((want_input & F_AUDIO) && (input_full & F_VIDEO)) {
 					if (vq->cap < AVQ_SIZE_MAX) {
 						vq = queue_realloc(vq, ffmin(vq->cap * 2, AVQ_SIZE_MAX));
-						input_full &= ~1;
+						input_full &= ~F_VIDEO;
 					} else {
 						warnlog(this, "need very large VQ");
 						have_pkt = 0;
@@ -443,11 +476,13 @@ struct fav_track {
 
 				break;
 			}
+
+			r = 0;
 		}
 
 		// Process next packet
 
-		if (finished)
+		if (state & TRK_FIN)
 			return 0;
 
 		if (!have_pkt) {
@@ -456,10 +491,10 @@ struct fav_track {
 					errlog(this, "input read: %s", dec.error());
 					return done(FAV_TRACK_E_IO);
 				}
-				finished = 3;
+				state |= TRK_FIN;
 				return 0;
 			}
-			this->pkt_log(pkt);
+			pkt_log(pkt);
 		}
 		have_pkt = 0;
 
@@ -467,7 +502,7 @@ struct fav_track {
 			if (pkt.stream_index() == dec.video_stream) {
 				if (!(f = vq->push())) {
 					dbglog(this, "video queue full");
-					input_full = 1;
+					input_full = F_VIDEO;
 					have_pkt = 1;
 					return 0;
 				}
@@ -486,7 +521,7 @@ struct fav_track {
 			} else if (pkt.stream_index() == dec.audio_stream) {
 				if (!(f = aq->push())) {
 					dbglog(this, "audio queue full");
-					input_full = 2;
+					input_full = F_AUDIO;
 					have_pkt = 1;
 					return 0;
 				}
@@ -511,7 +546,13 @@ struct fav_track {
 	}
 
 	int done(int e) {
-		this->error = e;
+		if (conf.pause_on_end
+			|| dec.picture()) {
+			pause_toggle();
+			return 0x7fffffff;
+		}
+
+		error = e;
 		core->conf.signal(this, FAV_TRACK_STOP, 1);
 		return -1;
 	}
@@ -607,7 +648,11 @@ static int track_cmd(fav_track *t, uint cmd, ...) {
 		break;
 
 	case FAV_TRACK_SOURCE:
+#ifdef FF_WIN
+		if (!ffui_file_del(&t->conf.input.url, 1, FFUI_FILE_TRASH))
+#else
 		if (!ffui_glib_trash(t->conf.input.url, NULL))
+#endif
 			infolog(t, "Moved to Trash: %s", t->conf.input.url);
 		break;
 

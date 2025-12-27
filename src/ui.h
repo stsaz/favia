@@ -16,7 +16,7 @@ struct ui_key {
 };
 static struct ui_key ui_keymap[] = {
 	{ SDLK_DOWN,		0,								FAV_TRACK_VOLUME, 0 },
-	{ SDLK_LEFT, 		0,								FAV_TRACK_SEEK, 2 },
+	{ SDLK_LEFT, 		0,								FAV_TRACK_SEEK, FAV_TRACK_SEEK_REVERSE },
 	{ SDLK_LEFT, 		SDL_KMOD_CTRL,					FAV_TRACK_SEEK, FAV_TRACK_SEEK_LEAP|FAV_TRACK_SEEK_REVERSE },
 	{ SDLK_LEFT, 		SDL_KMOD_CTRL | SDL_KMOD_SHIFT,	FAV_TRACK_SEEK, FAV_TRACK_SEEK_LEAP_PERCENT|FAV_TRACK_SEEK_REVERSE },
 	{ SDLK_RIGHT, 		0,								FAV_TRACK_SEEK, 0 },
@@ -45,6 +45,10 @@ static struct ui_key ui_keymap[] = {
 	{ SDLK_N,			0,								FAV_TRACK_NEXT, 1 },
 	{ SDLK_P,			0,								FAV_TRACK_NEXT, 0 },
 	{ SDLK_Q,			0,								FAV_TRACK_QUIT, 0 },
+};
+
+enum {
+	UIF_CTRL = 1,
 };
 
 static uint key_find(int k, int m, int *arg1)
@@ -83,7 +87,7 @@ int user_events() {
 
 			case SDLK_LCTRL:
 			case SDLK_RCTRL:
-				ui.flags |= 1;  break;
+				ui.flags |= UIF_CTRL;  break;
 
 			default:
 				warnlog("No such key binding (0x%xu)", e->key.key);
@@ -94,7 +98,7 @@ int user_events() {
 			switch (e->key.key) {
 			case SDLK_LCTRL:
 			case SDLK_RCTRL:
-				ui.flags &= ~1;  break;
+				ui.flags &= ~UIF_CTRL;  break;
 			}
 			break;
 
@@ -117,7 +121,7 @@ int user_events() {
 			break;
 
 		case SDL_EVENT_MOUSE_WHEEL:
-			if (ui.flags & 1) {
+			if (ui.flags & UIF_CTRL) {
 				cmd = FAV_TRACK_ZOOM, arg1 = (e->wheel.y >= 0);
 				break;
 			}

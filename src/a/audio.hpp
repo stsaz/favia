@@ -85,7 +85,11 @@ struct audio {
 			return 0;
 		}
 
+#ifdef FF_WIN
+		audio = &ffwasapi;
+#else
 		audio = &ffpulse;
+#endif
 
 		ffaudio_init_conf conf = {};
 		conf.app_name = "favia";
@@ -132,9 +136,9 @@ struct audio {
 		if (a->cflags & FAV_CF_REVERSE)
 			return FAV_CU_BACK;
 
+		const void *aa[8];
 		const void *in = a->input1.ptr;
 		if (!a->iaf.interleaved) {
-			const void *aa[8];
 			for (uint i = 0;  i < a->iaf.channels;  i++) {
 				aa[i] = ((void**)in)[i];
 			}
