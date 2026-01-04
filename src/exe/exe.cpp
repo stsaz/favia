@@ -3,6 +3,7 @@
 
 #include <favia.h>
 #include <util/util.hpp>
+#include <util/log.h>
 #include <ffsys/signal.h>
 #include <ffsys/dirscan.h>
 #include <ffsys/globals.h>
@@ -14,12 +15,11 @@ FF_EXTERN int core_run();
 static fav_core_if *core;
 static void exe_signal(fav_track *trk, uint cmd, uint flags);
 
-#include <exe/log.h>
-
 struct exe {
 	fav_task task;
 	uint cursor, n_tracks;
 	uint exit_code;
+	struct zzlog log;
 
 	const char *cmd_line;
 	const char *hwaccel;
@@ -29,6 +29,7 @@ struct exe {
 	u_char no_display;
 	u_char no_sound;
 	u_char pause_on_end;
+	u_char perf;
 	u_char repeat;
 	uint parallel;
 	uint volume;
@@ -36,8 +37,6 @@ struct exe {
 	uint64_t seek_msec, until_msec;
 	xxvec input; // const char*[]
 	struct ffargs *cmd;
-
-	uint use_color :1;
 
 	int dir_read(const char *fn, uint ins_pos) {
 		int rc = 1;
@@ -125,18 +124,25 @@ struct exe {
 };
 static struct exe *x;
 
-static void logs() {
-	int r = ffstd_attr(ffstdout, FFSTD_VTERM, FFSTD_VTERM);
-	x->use_color = !r;
-}
-
+#include <exe/log.h>
 #include <exe/cmd.hpp>
 
 static void core_open() {
 	struct fav_core_conf cc = {
-		.debug = x->debug,
+#ifdef FF_DEBUG
+		.log_level = (x->debug) ? FAV_LOG_EXTRA : FAV_LOG_VERB,
+#else
+		.log_level = (x->debug) ? FAV_LOG_DEBUG : FAV_LOG_VERB,
+#endif
 		.log = exe_log,
 		.signal = exe_signal,
+
+		.seek_step_sec = 5,
+		.seek_leap_sec = 60,
+		.seek_leap_pct = 5,
+		.zoom_by_pct = 10,
+		.volume_step_pct = 5,
+		.seek_range_margin_msec = 500,
 	};
 	core = core_init(&cc);
 }
@@ -160,8 +166,47 @@ static void signals() {
 	ffsig_subscribe(sig, sigs, FF_COUNT(sigs));
 }
 
+FF_EXTERN const struct fav_track_cu
+	trk_cu_read,
+	trk_cu_decode,
+	trk_cu_sync,
+	trk_cu_vo,
+	trk_cu_ao,
+	trk_cu_until;
+
+static const struct fav_track_cu* trk_cu_set_play[] = {
+	&trk_cu_read,
+
+	/*
+	(!packet && !read_fin) ? BACK
+	(!packet && read_fin) ? fin=1
+	(want_input && fin) ? FIN
+	FWD
+	*/
+	&trk_cu_decode,
+
+	/*
+	(want_input) ? BACK
+	(redraw || audio || video) ? FWD
+	(input_full || fin || paused) ? ASYNC
+	BACK
+	*/
+	&trk_cu_sync,
+
+	/*
+	want_input=q_empty
+	(complete) ? input_full&=~(A || V)
+	*/
+	&trk_cu_vo,
+	&trk_cu_ao,
+
+	&trk_cu_until,
+	NULL,
+};
+
 static fav_track* trk_new(const char *url) {
 	struct fav_track_conf tc = {
+		.conveyor = trk_cu_set_play,
 		.input = {
 			.url = url,
 			.seek_msec = x->seek_msec,
@@ -169,6 +214,7 @@ static fav_track* trk_new(const char *url) {
 		},
 		.decoder = {
 			.hw_accel = x->hwaccel,
+			.q_size = 4,
 		},
 		.video = {
 			.zoom = (ushort)x->zoom,
@@ -181,6 +227,7 @@ static fav_track* trk_new(const char *url) {
 		.no_display = x->no_display,
 		.no_sound = x->no_sound,
 		.pause_on_end = x->pause_on_end,
+		.print_time = x->perf,
 	};
 	return core->track->create(&tc);
 }
@@ -261,6 +308,7 @@ static void exe_signal(fav_track *trk, uint cmd, uint flags) {
 
 	switch (cmd) {
 	case FAV_TRACK_QUIT:
+		x->exit_code = 0;
 		core->stop();
 		return;
 	}
@@ -271,9 +319,9 @@ static void exe_signal(fav_track *trk, uint cmd, uint flags) {
 
 int main(int argc, char **argv)
 {
-	int r = 1;
 	x = ffmem_new(struct exe);
-	logs();
+	x->exit_code = 1;
+	logs(&x->log);
 
 #ifdef FF_WIN
 	x->cmd_line = ffsz_alloc_wtou(GetCommandLineW());
@@ -286,11 +334,10 @@ int main(int argc, char **argv)
 
 	core->task(FAV_TASK_ADD, &x->task, exe_iq_start, x);
 	core_run();
-	r = x->exit_code;
 
 end:
 	core_destroy();
 	x->~exe();
 	ffmem_free(x);
-	return r;
+	return x->exit_code;
 }

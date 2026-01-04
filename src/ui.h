@@ -17,8 +17,8 @@ struct ui_key {
 static struct ui_key ui_keymap[] = {
 	{ SDLK_DOWN,		0,								FAV_TRACK_VOLUME, 0 },
 	{ SDLK_LEFT, 		0,								FAV_TRACK_SEEK, FAV_TRACK_SEEK_REVERSE },
-	{ SDLK_LEFT, 		SDL_KMOD_CTRL,					FAV_TRACK_SEEK, FAV_TRACK_SEEK_LEAP|FAV_TRACK_SEEK_REVERSE },
-	{ SDLK_LEFT, 		SDL_KMOD_CTRL | SDL_KMOD_SHIFT,	FAV_TRACK_SEEK, FAV_TRACK_SEEK_LEAP_PERCENT|FAV_TRACK_SEEK_REVERSE },
+	{ SDLK_LEFT, 		SDL_KMOD_CTRL,					FAV_TRACK_SEEK, FAV_TRACK_SEEK_LEAP | FAV_TRACK_SEEK_REVERSE },
+	{ SDLK_LEFT, 		SDL_KMOD_CTRL | SDL_KMOD_SHIFT,	FAV_TRACK_SEEK, FAV_TRACK_SEEK_LEAP_PERCENT | FAV_TRACK_SEEK_REVERSE },
 	{ SDLK_RIGHT, 		0,								FAV_TRACK_SEEK, 0 },
 	{ SDLK_RIGHT, 		SDL_KMOD_CTRL,					FAV_TRACK_SEEK, FAV_TRACK_SEEK_LEAP },
 	{ SDLK_RIGHT, 		SDL_KMOD_CTRL | SDL_KMOD_SHIFT,	FAV_TRACK_SEEK, FAV_TRACK_SEEK_LEAP_PERCENT },
@@ -29,10 +29,10 @@ static struct ui_key ui_keymap[] = {
 	{ SDLK_MINUS,		0,								FAV_TRACK_ZOOM, 0 },
 	{ SDLK_MINUS,		SDL_KMOD_CTRL,					FAV_TRACK_WINDOW, 0 },
 	{ SDLK_SPACE,		0,								FAV_TRACK_PAUSE, 0 },
-	{ SDLK_TAB,			0,								FAV_TRACK_WINDOW, 2 },
+	{ SDLK_TAB,			0,								FAV_TRACK_WINDOW, FAV_TRACK_WND_NEXT },
 	{ SDLK_DELETE,		SDL_KMOD_SHIFT,					FAV_TRACK_SOURCE, 0 },
 	{ SDLK_LEFTBRACKET,	0,								FAV_TRACK_SEEK, FAV_TRACK_SEEK_LOOP },
-	{ SDLK_RIGHTBRACKET,0,								FAV_TRACK_SEEK, FAV_TRACK_SEEK_LOOP|FAV_TRACK_SEEK_REVERSE },
+	{ SDLK_RIGHTBRACKET,0,								FAV_TRACK_SEEK, FAV_TRACK_SEEK_LOOP | FAV_TRACK_SEEK_REVERSE },
 
 	{ SDLK_KP_MINUS,	0,								FAV_TRACK_ZOOM, 0 },
 	{ SDLK_KP_MINUS,	SDL_KMOD_CTRL,					FAV_TRACK_WINDOW, 0 },
@@ -41,7 +41,7 @@ static struct ui_key ui_keymap[] = {
 
 	{ SDLK_A,			0,								FAV_TRACK_AUDIO_NEXT, 0 },
 	{ SDLK_F,			0,								FAV_TRACK_FULLSCREEN, 0 },
-	{ SDLK_M,			0,								FAV_TRACK_VOLUME, 2 },
+	{ SDLK_M,			0,								FAV_TRACK_VOLUME, FAV_TRACK_VOL_MUTE },
 	{ SDLK_N,			0,								FAV_TRACK_NEXT, 1 },
 	{ SDLK_P,			0,								FAV_TRACK_NEXT, 0 },
 	{ SDLK_Q,			0,								FAV_TRACK_QUIT, 0 },
@@ -132,10 +132,10 @@ int user_events() {
 			cmd = FAV_TRACK_ADD;  arg1_ptr = ffsz_dup(e->drop.data);  break;
 
 		case SDL_EVENT_WINDOW_RESIZED:
-			cmd = FAV_TRACK_WINDOW, arg1 = 4, arg2 = e->display.data1 | (e->display.data2 << 16);  break;
+			cmd = FAV_TRACK_WINDOW, arg1 = FAV_TRACK_WND_RESIZED, arg2 = e->display.data1 | (e->display.data2 << 16);  break;
 
 		case SDL_EVENT_WINDOW_EXPOSED:
-			cmd = FAV_TRACK_WINDOW, arg1 = 8;  break;
+			cmd = FAV_TRACK_WINDOW, arg1 = FAV_TRACK_WND_SHOWN;  break;
 
 		case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
 			cmd = FAV_TRACK_STOP;  break;
@@ -143,7 +143,8 @@ int user_events() {
 
 process:
 		if (cmd != ~0U) {
-			assert(wnd[i]);
+			if (!wnd[i])
+				continue;
 			fav_track *t = core->track->find(wnd[i]);
 			assert(t);
 			if (cmd == FAV_TRACK_ADD)

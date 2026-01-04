@@ -6,24 +6,23 @@
 
 static void help_info_write(const char *sz)
 {
-	ffstr s = FFSTR_INITZ(sz), l, k;
-	ffvec v = {};
+	xxstr s(sz), l, k;
+	xxvec v;
 
 	const char *clr = FFSTD_CLR_B(FFSTD_PURPLE);
 	while (s.len) {
-		ffstr_splitby(&s, '`', &l, &s);
-		ffstr_splitby(&s, '`', &k, &s);
-		if (x->use_color) {
-			ffvec_addfmt(&v, "%S%s%S%s"
+		s.split_by('`', &l, &s);
+		s.split_by('`', &k, &s);
+		if (x->log.use_color) {
+			v.add_f("%S%s%S%s"
 				, &l, clr, &k, FFSTD_CLR_RESET);
 		} else {
-			ffvec_addfmt(&v, "%S%S"
+			v.add_f("%S%S"
 				, &l, &k);
 		}
 	}
 
 	ffstdout_write(v.ptr, v.len);
-	ffvec_free(&v);
 }
 
 static int arg_help(struct exe *x) {
@@ -50,7 +49,10 @@ Options:\n\
   `-parallel` N       Play N files in parallel\n\
   `-nodisplay`        Don't display video\n\
   `-nosound`          Don't play audio\n\
+\n\
+  `-perf`             Print perf counters\n\
 ");
+	x->exit_code = 0;
 	return 1;
 }
 
@@ -84,12 +86,14 @@ static int arg_input(struct exe *x, const char *s) {
 static const struct ffarg cmd_root[] = {
 	{ "-Debug",		'1',	O(debug) },
 
+	{ "-h",			'1',	(void*)arg_help },
 	{ "-help",		'1',	(void*)arg_help },
 	{ "-hwaccel",	's',	O(hwaccel) },
 	{ "-mute",		'1',	O(mute) },
 	{ "-nodisplay",	'1',	O(no_display) },
 	{ "-nosound",	'1',	O(no_sound) },
 	{ "-parallel",	'u',	O(parallel) },
+	{ "-perf",		'1',	O(perf) },
 	{ "-poe",		'1',	O(pause_on_end) },
 	{ "-repeat",	'1',	O(repeat) },
 	{ "-seek",		'S',	(void*)arg_seek },
@@ -120,7 +124,8 @@ int cmd(int argc, char **argv, const char *cmd_line) {
 #endif
 
 	if (r) {
-		exe_errlog("%s", a.error);
+		if (x->exit_code)
+			exe_errlog("%s", a.error);
 		return r;
 	}
 

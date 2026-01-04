@@ -44,6 +44,9 @@ void ffmpeg_frame_unref(ffmpeg_frame *f)
 
 void ffmpeg_dec_init(ffmpeg_dec *d)
 {
+#ifndef FF_DEBUG
+	av_log_set_level(AV_LOG_QUIET);
+#endif
 }
 
 void ffmpeg_dec_destroy(ffmpeg_dec *d)

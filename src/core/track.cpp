@@ -6,57 +6,26 @@
 #else
 #include <util/unix-shell.h>
 #endif
-#include <favia.h>
+#include <core/track.h>
+#include <util/util.h>
 
-FF_EXTERN const fav_core_if *core;
+#include <f/in.hpp>
+#include <v/vd.hpp>
+#include <f/sync.hpp>
+#include <v/vo.hpp>
+#include <a/ao.hpp>
+#include <f/until.hpp>
 
-#include <util/ffmpeg.h>
-#include <util/SDL.hpp>
-#include <a/audio.hpp>
-#include <util/util.hpp>
-#include <core/avsync.hpp>
-#include <ffsys/file.h>
-#include <ffsys/std.h>
-
-struct qframe {
-	struct ffmpeg_frame frame;
-	uint64_t ts;
-	uint dur;
-
-	void alloc() {
-		ffmpeg_frame_init(&frame);
-	}
-	void destroy() {
-		ffmpeg_frame_destroy(&frame);
-	}
-	void unref() {
-		ffmpeg_frame_unref(&frame);
-	}
+// enum FAV_CU
+const char _fav_cu[][14] = {
+	"FAV_CU_FWD",
+	"FAV_CU_BACK",
+	"FAV_CU_ASYNC",
+	"FAV_CU_ERROR",
+	"FAV_CU_WARN",
+	"FAV_CU_DONE",
+	"FAV_CU_FIN",
 };
-
-#include <core/queue.hpp>
-
-
-#undef syserrlog
-#undef errlog
-#undef warnlog
-#undef infolog
-#undef dbglog
-#define syserrlog(trk, ...)  core->log(FAV_LOG_ERROR, trk->id, __VA_ARGS__) // TODO
-#define errlog(trk, ...)  core->log(FAV_LOG_ERROR, trk->id, __VA_ARGS__)
-#define warnlog(trk, ...)  core->log(FAV_LOG_WARN, trk->id, __VA_ARGS__)
-#define infolog(trk, ...)  core->log(FAV_LOG_INFO, trk->id, __VA_ARGS__)
-#define dbglog(trk, ...) \
-do { \
-	if (ff_unlikely(core->conf.debug)) \
-		core->log(FAV_LOG_DEBUG, trk->id, __VA_ARGS__); \
-} while (0)
-
-
-#define SEEK_STEP_SEC  5
-#define SEEK_LEAP_SEC  60
-#define SEEK_LEAP_PCT  5
-#define AVQ_SIZE_MAX  128
 
 struct tracks {
 	xxvec tracks; // fav_track*[]
@@ -64,510 +33,64 @@ struct tracks {
 };
 static struct tracks *xt;
 
-FF_EXTERN void tracks_init() {
+FF_EXTERN void tracks_init()
+{
 	xt = ffmem_new(struct tracks);
 }
 
-static int sdl_init_complete;
-
-static const char* time_print(uint64_t msec, char *buf, size_t cap) {
-	uint h = msec / 3600000,  m = (msec / 60000) % 60,  s = (msec / 1000) % 60,  ms = msec % 1000;
-	ffsz_format(buf, cap, "%u:%02u:%02u.%03u"
-		, h, m, s, ms);
-	return buf;
-}
-
-struct fav_track {
-	struct fav_track_conf conf;
-
-	xxfile input;
-	xxffmpeg_dec dec;
-	queue *vq, *aq;
-	xxsdl v;
-	audio a;
-	struct avsync sync;
-	xxffmpeg_packet pkt;
-	uint input_full, have_pkt;
-	int error;
-	char id[8];
-
-	uint64_t prev_pos_sec, loop_start, loop_end;
-	uint avolume;
-	uint vzoom;
-	uint state; // enum trk_state
-	uint redraw :1;
-
-	fav_track(){}
-	~fav_track() {
-		if (vq)
-			vq->free();
-		if (aq)
-			aq->free();
-
-		if (conf.url_transient)
-			ffmem_free((char*)conf.input.url);
-	}
-
-	enum trk_state {
-		TRK_FIN = 0x10,
-		TRK_PAUSED = 0x20,
-		TRK_MUTE = 0x40,
-	};
-
-	static int input_read(void *opaque, uint8_t *buf, int size)
-	{
-		fav_track *t = (fav_track*)opaque;
-		int r = t->input.read(buf, size);
-		if (r == 0)
-			return AVERROR_EOF;
-		else if (r < 0)
-			return AVERROR(errno);
-		return r;
-	}
-
-	static int seek_method(int w) {
-		switch (w) {
-		case SEEK_CUR: return FFFILE_SEEK_CURRENT;
-		case SEEK_END: return FFFILE_SEEK_END;
-		}
-		return FFFILE_SEEK_BEGIN;
-	}
-	static int64_t input_seek(void *opaque, int64_t pos, int whence)
-	{
-		fav_track *t = (fav_track*)opaque;
-
-		if (whence == AVSEEK_SIZE) {
-			return t->input.info().size();
-		}
-
-		int64_t r = t->input.seek(pos, seek_method(whence));
-		if (r < 0)
-			return AVERROR(errno);
-		return r;
-	}
-
-	int init() {
-		prev_pos_sec = loop_start = loop_end = ~0ULL;
-		avolume = 100;
-		vzoom = 100;
-
-		if (input.open(conf.input.url, FFFILE_READONLY).null()) {
-			syserrlog(this, "Input open: %s", conf.input.url);
-			return 1;
-		}
-
-		if (!dec.open(input_read, input_seek, this)) {
-			errlog(this, "Decoder open: %s", dec.error());
-			return 1;
-		}
-		assert(dec.have_video());
-
-		char buf[64];
-		infolog(this, "\"%s\"  %.02FMB  %s  %u streams"
-			, conf.input.url
-			, (double)input.info().size() / (1024 * 1024)
-			, time_print(dec.duration(), buf, sizeof(buf))
-			, dec.streams());
-
-		if (!dec.hwaccel_enable(conf.decoder.hw_accel))
-			warnlog(this, "HW decoding is inactive: %s", dec.error());
-
-		sync.reset();
-
-		if (!conf.no_display) {
-			if (!sdl_init_complete) {
-				sdl_init_complete = 1;
-				if (sdl_init(1)) {
-					errlog(this, "SDL init");
-					return 1;
-				}
-			}
-
-			if (!v.open(dec.video_width(), dec.video_height(), xxpath(conf.input.url).name().ptr)) {
-				errlog(this, "Video renderer: %s", v.error());
-				return 1;
-			}
-
-			if (conf.video.fullscreen)
-				fullscreen_toggle();
-			else if (conf.video.zoom)
-				zoom(conf.video.zoom);
-
-			v.show();
-		}
-
-		conf.no_sound = !dec.have_audio();
-		if (!conf.no_sound) {
-			conf.no_sound = !a.open(dec);
-			sync.audio((a.buf_len_msec) ? a.buf_len_msec : 500);
-			if (conf.audio.volume)
-				volume(conf.audio.volume);
-			if (conf.audio.mute)
-				mute_toggle();
-		}
-
-		vq = queue_alloc(16);
-		aq = queue_alloc(16);
-
-		if (conf.input.seek_msec)
-			seek(conf.input.seek_msec);
-		return 0;
-	}
-
-	void pause_toggle() {
-		uint p = !(state & TRK_PAUSED);
-		if (p)
-			state |= TRK_PAUSED;
-		else
-			state &= ~TRK_PAUSED;
-		if (!conf.no_sound)
-			a.pause(p);
-		if (!p)
-			sync.reset();
-	}
-
-	void seek(uint64_t pos_msec) {
-		char buf[64];
-		infolog(this, "Seek: %s", time_print(pos_msec, buf, sizeof(buf)));
-		if (!conf.no_sound)
-			a.clear();
-		sync.reset();
-		if (vq)
-			vq->reset();
-		if (aq)
-			aq->reset();
-		dec.seek(pos_msec * 1000);
-		have_pkt = 0;
-		input_full = 0;
-		state &= ~TRK_FIN;
-	}
-
-	void zoom(uint n) {
-		vzoom = n;
-		infolog(this, "Zoom: %u%%", vzoom);
-		uint w = dec.video_width() * vzoom / 100;
-		uint h = dec.video_height() * vzoom / 100;
-		v.window_size(w, h);
-		v.texture_rect(0, 0, w, h);
-	}
-
-	bool fullscreen_toggle() {
-		uint w = dec.video_width(), h = dec.video_height();
-		uint fs = v.fullscreen();
-		v.fullscreen(!fs);
-		if (fs) {
-			w = w * vzoom / 100;
-			h = h * vzoom / 100;
-		}
-		v.texture_rect(0, 0, w, h);
-		redraw = 1;
-		return !fs;
-	}
-
-	void mute_toggle() {
-		uint m = !(state & TRK_MUTE);
-		if (m)
-			state |= TRK_MUTE;
-		else
-			state &= ~TRK_MUTE;
-		infolog(this, "Mute: %u", m);
-		a.volume((m) ? 0 : avolume);
-	}
-
-	void volume(uint n) {
-		avolume = n;
-		infolog(this, "Volume: %u%%", avolume);
-		a.volume(avolume);
-	}
-
-	void audio_stream_switch() {
-		int r;
-		if ((r = dec.audio_stream_switch())) {
-			if (r < 0)
-				warnlog(this, "Switching audio streams: %s", dec.error());
-			return;
-		}
-
-		infolog(this, "Switched to next audio stream");
-
-		aq->reset();
-		vq->reset();
-		input_full = 0;
-		have_pkt = 0;
-
-		if (conf.no_sound)
-			return;
-
-		a.~audio();
-		ffmem_zero_obj(&a);
-		new (&a) audio();
-		conf.no_sound = !a.open(dec);
-		a.volume(avolume);
-
-		sync.reset();
-		sync.master = 0;
-		if (!conf.no_sound)
-			sync.audio((a.buf_len_msec) ? a.buf_len_msec : 500);
-	}
-
-	uint iframe;
-	void pkt_log(const xxffmpeg_packet &pkt) {
-		double tb = (pkt.stream_index() == dec.video_stream) ? dec.video_time_base() : dec.audio_time_base();
-		dbglog(this, "frame #%u  stream:%u  pts:%u  ts:%u  size:%u  dur:%u"
-			, iframe++, pkt.stream_index(), pkt.pts()
-			, (int)(tb * pkt.pts() * 1000000)
-			, pkt.size(), pkt.duration());
-	}
-
-	void pos_print(uint64_t pos_sec) {
-		if (pos_sec != prev_pos_sec) {
-			prev_pos_sec = pos_sec;
-			char buf1[64], buf2[64];
-			ffstdout_fmt("\r[%s / %s]"
-				, time_print(pos_sec * 1000, buf1, sizeof(buf1))
-				, time_print(dec.duration(), buf2, sizeof(buf2)));
-		}
-	}
-
-	bool until(uint64_t pos_msec) {
-		if (pos_msec >= conf.input.until_msec) {
-			dbglog(this, "'until' time reached");
-			return 1;
-		}
-		return 0;
-	}
-
-	int run() {
-		int r, n;
-		qframe *f;
-		enum { F_VIDEO = 1, F_AUDIO = 2, F_REDRAW = 4, };
-
-		if (!vq && init()) {
-			return done(FAV_TRACK_E_INIT);
-		}
-
-		r = 0;
-		if (redraw) {
-			redraw = 0;
-			dbglog(this, "redraw forced");
-			r = F_VIDEO | F_REDRAW;
-		}
-
-		for (;;) {
-
-			n = 0x7fffffff;
-			if (!(state & TRK_PAUSED)) {
-				r |= sync.read(&n);
-				dbglog(this, "r:%u  VQ:%u  AQ:%u", r, vq->length(), aq->length());
-			}
-
-			if (!r) {
-				if (input_full || (state & (TRK_FIN | TRK_PAUSED)))
-					return n;
-				break;
-			}
-
-			uint want_input = 0;
-
-			if (r & F_VIDEO) {
-				if (!(r & F_REDRAW)) {
-					if (vq->length() < 2) {
-						want_input |= F_VIDEO;
-						goto v_done;
-					}
-
-					// Draw next frame
-					f = vq->read();
-					f->unref();
-					input_full &= ~F_VIDEO;
-				}
-
-				if ((f = vq->peek())) {
-
-					if (!conf.no_display) {
-						SDL_BlendMode blendmode;
-						SDL_PixelFormat format = format_sdl_av(f->frame.frame->format, &blendmode);
-						if (format == SDL_PIXELFORMAT_UNKNOWN) {
-							if (!dec.video_convert(&f->frame)) {
-								errlog(this, "Video frame convert: %s", dec.error());
-								f->unref();
-								vq->read();
-								input_full &= ~F_VIDEO;
-								goto v_done;
-							}
-							format = format_sdl_av(f->frame.frame->format, &blendmode);
-						}
-						dbglog(this, "AV-pixel-format:0x%xu  SDL-pixel-format:0x%xu", f->frame.frame->format, format);
-
-						if (!v.display(f->frame.frame, format, blendmode)) {
-							errlog(this, "display: %s", v.error());
-							f->unref();
-							vq->read();
-							input_full &= ~F_VIDEO;
-						}
-					}
-
-					sync.frame(f->ts, f->dur, 0);
-
-					if (until(f->ts / 1000))
-						return done(0);
-
-					pos_print(f->ts / 1000000);
-
-				} else {
-					want_input |= F_VIDEO;
-				}
-			}
-		v_done:
-
-			if ((r & F_AUDIO) && (f = aq->peek())) {
-
-				int complete = conf.no_sound;
-				if (!conf.no_sound) {
-					if (!(r = a.write(f->frame.frame))) {
-						complete = 1;
-					} else if (r == 1) {
-						sync.a_start();
-					}
-				}
-
-				if (complete) {
-					sync.frame(f->ts, f->dur, 1);
-					f = aq->read();
-					f->unref();
-
-					input_full &= ~F_AUDIO;
-
-					if (until(f->ts / 1000)) // TODO
-						return done(0);
-				}
-
-			} else if (r & F_AUDIO) {
-				want_input |= F_AUDIO;
-			}
-
-			if (want_input) {
-				dbglog(this, "VQ or AQ is empty");
-
-				if (state & TRK_FIN) {
-					dbglog(this, "finished");
-					return done(0);
-				}
-
-				if ((want_input & F_VIDEO) && (input_full & F_AUDIO)) {
-					if (aq->cap < AVQ_SIZE_MAX) {
-						aq = queue_realloc(aq, ffmin(aq->cap * 2, AVQ_SIZE_MAX));
-						input_full &= ~F_AUDIO;
-					} else {
-						warnlog(this, "need very large AQ");
-						have_pkt = 0;
-					}
-				}
-
-				if ((want_input & F_AUDIO) && (input_full & F_VIDEO)) {
-					if (vq->cap < AVQ_SIZE_MAX) {
-						vq = queue_realloc(vq, ffmin(vq->cap * 2, AVQ_SIZE_MAX));
-						input_full &= ~F_VIDEO;
-					} else {
-						warnlog(this, "need very large VQ");
-						have_pkt = 0;
-					}
-				}
-
-				break;
-			}
-
-			r = 0;
-		}
-
-		// Process next packet
-
-		if (state & TRK_FIN)
-			return 0;
-
-		if (!have_pkt) {
-			if ((r = dec.read(&pkt))) {
-				if (r < 0) {
-					errlog(this, "input read: %s", dec.error());
-					return done(FAV_TRACK_E_IO);
-				}
-				state |= TRK_FIN;
-				return 0;
-			}
-			pkt_log(pkt);
-		}
-		have_pkt = 0;
-
-		for (;;) {
-			if (pkt.stream_index() == dec.video_stream) {
-				if (!(f = vq->push())) {
-					dbglog(this, "video queue full");
-					input_full = F_VIDEO;
-					have_pkt = 1;
-					return 0;
-				}
-
-				if ((r = dec.video_decode(pkt, &f->frame))) {
-					vq->pop();
-					if (r > 0)
-						break; // this packet is completely processed
-					errlog(this, "Video packet decode: %s", dec.error());
-					return 0;
-				}
-
-				f->ts = dec.video_time_base() * pkt.pts() * 1000000;
-				f->dur = dec.video_time_base() * pkt.duration() * 1000000;
-
-			} else if (pkt.stream_index() == dec.audio_stream) {
-				if (!(f = aq->push())) {
-					dbglog(this, "audio queue full");
-					input_full = F_AUDIO;
-					have_pkt = 1;
-					return 0;
-				}
-
-				if ((r = dec.audio_decode(pkt, &f->frame))) {
-					aq->pop();
-					if (r > 0)
-						break; // this packet is completely processed
-					errlog(this, "Audio packet decode: %s", dec.error());
-					return 0;
-				}
-
-				f->ts = dec.audio_time_base() * pkt.pts() * 1000000;
-				f->dur = dec.audio_time_base() * pkt.duration() * 1000000;
-
-			} else {
-				break;
-			}
-		}
-
-		return 0;
-	}
-
-	int done(int e) {
-		if (conf.pause_on_end
-			|| dec.picture()) {
-			pause_toggle();
-			return 0x7fffffff;
-		}
-
-		error = e;
-		core->conf.signal(this, FAV_TRACK_STOP, 1);
-		return -1;
-	}
-};
-
-static fav_track* track_create(struct fav_track_conf *conf) {
+static fav_track* track_create(struct fav_track_conf *conf)
+{
 	fav_track *t = new(ffmem_new(fav_track)) fav_track;
 	t->conf = *conf;
 	xt->gid++;
 	ffsz_format(t->id, sizeof(t->id), "*%u", xt->gid);
+
+	for (uint i = 0;  conf->conveyor[i];  i++) {
+		t->conv.units[i] = *conf->conveyor[i];
+		t->conv.n++;
+	}
+	assert(t->conv.n <= FF_COUNT(t->conv.opened));
+
 	*xt->tracks.push<fav_track*>() = t;
 	return t;
 }
 
-static void track_close(fav_track *t) {
+static void trk_conveyor_close(fav_track *t)
+{
+	for (int i = (int)t->conv.n - 1;  i >= 0;  i--) {
+		const struct fav_track_cu *cu = &t->conv.units[i];
+		if (t->conv.opened[i]
+			&& cu->close) {
+			dbglog(t, "closing '%s'", cu->name);
+			t->conv.i = i;
+			cu->close(t);
+		}
+	}
+}
+
+/** Print the time we spent inside each CU */
+static void track_busytime_print(fav_track *t)
+{
+	xxvec buf;
+	buf.add_f("busy time: ");
+
+	for (int i = (int)t->conv.n - 1;  i >= 0;  i--) {
+		const struct fav_track_cu *cu = &t->conv.units[i];
+		uint64_t nsec = t->conv.busy_time_nsec[i];
+		if (!nsec)
+			continue;
+		uint sec = nsec / 1000000000;
+		uint usec = nsec % 1000000000 / 1000;
+		buf.add_f("%s: %u.%06u, "
+			, cu->name, sec, usec);
+	}
+	buf.len -= FFS_LEN(", ");
+
+	infolog(t, "%S", &buf);
+}
+
+static void track_close(fav_track *t)
+{
 	fav_track **it;
 	FFSLICE_WALK(&xt->tracks, it) {
 		if (t == *it) {
@@ -576,11 +99,18 @@ static void track_close(fav_track *t) {
 		}
 	}
 
+	if (t->conf.print_time)
+		track_busytime_print(t);
+
+	trk_conveyor_close(t);
+	if (t->conf.url_transient)
+		ffmem_free((char*)t->conf.input.url);
 	t->~fav_track();
 	ffmem_free(t);
 }
 
-static fav_track* tracks_next(fav_track *t) {
+static fav_track* tracks_next(fav_track *t)
+{
 	if (xt->tracks.len <= 1)
 		return NULL;
 
@@ -597,7 +127,8 @@ static fav_track* tracks_next(fav_track *t) {
 	return NULL;
 }
 
-static int track_cmd(fav_track *t, uint cmd, ...) {
+static int track_cmd(fav_track *t, uint cmd, ...)
+{
 	int r;
 	va_list va;
 	va_start(va, cmd);
@@ -622,25 +153,18 @@ static int track_cmd(fav_track *t, uint cmd, ...) {
 	case FAV_TRACK_STOP:
 	case FAV_TRACK_QUIT:
 	case FAV_TRACK_WINDOW:
-		if (cmd == FAV_TRACK_WINDOW && (flags & 8)) {
+		if (cmd == FAV_TRACK_WINDOW && (flags & FAV_TRACK_WND_SHOWN)) {
 			t->redraw = 1;
 			break;
 
-		} else if (cmd == FAV_TRACK_WINDOW && (flags & 4)) {
-			uint rw = arg2 & 0xffff, rh = arg2 >> 16;
-			uint w = t->dec.video_width(), h = t->dec.video_height();
-			// rw / rh := w / h
-			if (w >= h)
-				rh = (double)rw / ((double)w / h);
-			else
-				rw = (double)rh * ((double)w / h);
-			t->v.texture_rect(0, 0, rw, rh);
+		} else if (cmd == FAV_TRACK_WINDOW && (flags & FAV_TRACK_WND_RESIZED)) {
+			t->arg2 = arg2;
 			break;
 
-		} else if (cmd == FAV_TRACK_WINDOW && (flags & 2)) {
+		} else if (cmd == FAV_TRACK_WINDOW && (flags & FAV_TRACK_WND_NEXT)) {
 			t = tracks_next(t);
-			if (t)
-				t->v.present();
+			if (!t)
+				return 0;
 			break;
 		}
 
@@ -660,87 +184,169 @@ static int track_cmd(fav_track *t, uint cmd, ...) {
 		return t->error;
 
 	case FAV_TRACK_PAUSE:
-		t->pause_toggle();
-		break;
-
-	case FAV_TRACK_FULLSCREEN:
-		r = t->fullscreen_toggle();
-		core->conf.signal(t, cmd, r);
-		break;
-
-	case FAV_TRACK_ZOOM:
-		if (t->v.fullscreen())
-			break;
-
-		if (flags)
-			r = ffmin(t->vzoom + 10, 400);
+		if (!(t->state & TRK_PAUSED))
+			t->state |= TRK_PAUSED;
 		else
-			r = ffmax((int)t->vzoom - 10, 10);
-		t->zoom(r);
+			t->state &= ~TRK_PAUSED;
 		break;
-
-	case FAV_TRACK_VOLUME:
-		if (flags & 2) {
-			t->mute_toggle();
-			break;
-		}
-
-		if (flags & 1)
-			r = ffmin(t->avolume + 5, 125);
-		else
-			r = ffmax((int)t->avolume - 5, 0);
-		t->volume(r);
-		break;
-
-	case FAV_TRACK_AUDIO_NEXT:
-		t->audio_stream_switch();  break;
 
 	case FAV_TRACK_SEEK:
 		if (flags & FAV_TRACK_SEEK_LOOP) {
 			if (!(flags & FAV_TRACK_SEEK_REVERSE)) {
-				t->loop_start = (t->sync.pos() - 500000) / 1000;
+				t->loop_start = ffmax((int64_t)t->sync.pos() - (uint)core->conf.seek_range_margin_msec * 1000, 0) / 1000;
 			} else {
-				t->loop_end = (t->sync.pos() + 500000) / 1000;
+				t->loop_end = (t->sync.pos() + (uint)core->conf.seek_range_margin_msec * 1000) / 1000;
 				char buf1[64], buf2[64];
 				infolog(t, "range: \"%s\"  %s %s"
 					, t->conf.input.url
 					, time_print(t->loop_start, buf1, sizeof(buf1))
 					, time_print(t->loop_end, buf2, sizeof(buf2)));
 			}
-			break;
+			return 0;
 		}
 
-		if (flags & FAV_TRACK_SEEK_LEAP_PERCENT)
-			r = t->dec.duration()/1000 * SEEK_LEAP_PCT / 100;
-		else
-			r = !(flags & FAV_TRACK_SEEK_LEAP) ? SEEK_STEP_SEC : SEEK_LEAP_SEC;
-		if (flags & FAV_TRACK_SEEK_REVERSE)
-			r = -r;
-		t->seek(t->sync.pos()/1000 + r * 1000);
 		break;
+	}
 
-	default:
-		assert(0);
-		return -1;
+	for (uint i = 0;  i < t->conv.n;  i++) {
+		const struct fav_track_cu *cu = &t->conv.units[i];
+		if (cu->ctl) {
+			extralog(t, "ctl %xu: %s", cmd, cu->name);
+			cu->ctl(t, cmd, flags);
+		}
 	}
 
 	return 0;
 }
 
-static fav_track* track_find(const void *sdl_wnd) {
+static fav_track* track_find(const void *sdl_wnd)
+{
 	fav_track **it;
 	FFSLICE_WALK(&xt->tracks, it) {
-		if (sdl_wnd == (*it)->v.window)
+		if (sdl_wnd == (*it)->vo_window)
 			return *it;
 	}
 	return NULL;
 }
 
-FF_EXTERN int tracks_run() {
+static int trk_init(fav_track *t)
+{
+	t->loop_start = t->loop_end = ~0ULL;
+
+	for (uint i = 0;  i < t->conv.n;  i++) {
+		const struct fav_track_cu *cu = &t->conv.units[i];
+		dbglog(t, "opening '%s'", cu->name);
+		t->conv.opened[i] = 1;
+		if (cu->open) {
+
+			fftime t1, t2;
+			if (ff_unlikely(t->conf.print_time))
+				t1 = fftime_monotonic();
+
+			int r = cu->open(t);
+
+			if (ff_unlikely(t->conf.print_time)) {
+				t2 = fftime_monotonic();
+				fftime_sub(&t2, &t1);
+				t->conv.busy_time_nsec[i] += t2.sec * 1000000 + t2.nsec;
+			}
+
+			switch (r) {
+			case FAV_CU_FWD:
+				break;
+			case FAV_CU_ERROR:
+				return -1;
+			default:
+				assert(0);
+				return -1;
+			}
+		}
+	}
+	return 0;
+}
+
+static int track_run(fav_track *t)
+{
+	if (!t->conv.opened[0]) {
+		if (trk_init(t))
+			return FAV_CU_ERROR;
+		return FAV_CU_FWD;
+	}
+
+	for (;;) {
+		const struct fav_track_cu *cu = &t->conv.units[t->conv.i];
+		extralog(t, "calling '%s'", cu->name);
+
+		fftime t1, t2;
+		if (ff_unlikely(t->conf.print_time))
+			t1 = fftime_monotonic();
+
+		int r = cu->process(t);
+
+		if (ff_unlikely(t->conf.print_time)) {
+			t2 = fftime_monotonic();
+			fftime_sub(&t2, &t1);
+			t->conv.busy_time_nsec[t->conv.i] += t2.sec * 1000000 + t2.nsec;
+		}
+
+		extralog(t, " '%s' returned:  %s", cu->name, _fav_cu[r]);
+
+		switch (r) {
+		case FAV_CU_FWD:
+			if (t->conv.i + 1 < t->conv.n) {
+				t->conv.f &= ~FAV_CF_REVERSE;
+				t->conv.i++;
+				break;
+			}
+			t->conv.f |= FAV_CF_REVERSE;
+			break;
+
+		case FAV_CU_BACK:
+			if (t->conv.i == 0) {
+				errlog(t, "the first CU asks for more data");
+				return -1;
+			}
+			t->conv.f |= FAV_CF_REVERSE;
+			t->conv.i--;
+			break;
+
+		case FAV_CU_ASYNC:
+			t->conv.f &= ~FAV_CF_REVERSE;
+			return t->async_ret;
+
+		case FAV_CU_FIN:
+			goto done;
+
+		case FAV_CU_WARN:
+			return 0;
+
+		case FAV_CU_ERROR:
+			t->error = FAV_TRACK_E_OTHER;
+			goto done;
+
+		default:
+			assert(0);
+			return -1;
+		}
+	}
+
+done:
+	if (t->conf.pause_on_end
+		|| t->dec.picture()) {
+		t->state |= TRK_PAUSED;
+		return 0x7fffffff;
+	}
+
+	core->conf.signal(t, FAV_TRACK_STOP, 1);
+	return -1;
+}
+
+FF_EXTERN int tracks_run()
+{
 	int n = 0x7fffffff;
 	fav_track **it;
 	FFSLICE_WALK(&xt->tracks, it) {
-		int r = (*it)->run();
+		int r = track_run(*it);
 		if (r < 0)
 			return r;
 		n = ffmin(r, n);
