@@ -74,7 +74,7 @@ static int cu_a_open(fav_track *t)
 	if (t->conf.no_sound)
 		return FAV_CU_FWD;
 
-	struct aox *x = (struct aox*)fav_track_alloc(t, sizeof(struct aox));
+	struct aox *x = fav_track_allocT(t, struct aox);
 	new (x) (struct aox);
 	// fav_track_free()
 	t->aox = x;

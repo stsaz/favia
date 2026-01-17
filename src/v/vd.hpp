@@ -25,11 +25,6 @@ static int cu_av_decode(fav_track *t)
 	qframe *f;
 
 	if (t->want_input) {
-		if (t->state & TRK_FIN) {
-			dbglog(t, "finished");
-			return FAV_CU_FIN;
-		}
-
 		dbglog(t, "VQ or AQ is empty");
 
 		if ((t->want_input & FAV_F_VIDEO) && (t->input_full & FAV_F_AUDIO)) {
@@ -56,7 +51,7 @@ static int cu_av_decode(fav_track *t)
 	}
 
 	if (!t->have_pkt)
-		return (t->read_fin) ? FAV_CU_FWD : FAV_CU_BACK;
+		goto done;
 
 	if (t->pkt.stream_index() == t->dec.video_stream) {
 
@@ -70,7 +65,7 @@ static int cu_av_decode(fav_track *t)
 			t->vq->pop();
 			if (r > 0)
 				goto done; // this packet is completely processed
-			errlog(t, "Video packet decode: %s", t->dec.error());
+			warnlog(t, "Video packet decode: %s", t->dec.error());
 			return FAV_CU_WARN;
 		}
 
@@ -90,7 +85,7 @@ static int cu_av_decode(fav_track *t)
 			t->aq->pop();
 			if (r > 0)
 				goto done; // this packet is completely processed
-			errlog(t, "Audio packet decode: %s", t->dec.error());
+			warnlog(t, "Audio packet decode: %s", t->dec.error());
 			return FAV_CU_WARN;
 		}
 

@@ -11,7 +11,7 @@ static void cu_template_close(fav_track *t)
 
 static int cu_template_open(fav_track *t)
 {
-	struct template *x = (struct template*)fav_track_alloc(t, sizeof(struct template));
+	struct template *x = fav_track_allocT(t, struct template);
 	t->xxx = x;
 	return FAV_CU_FWD;
 }

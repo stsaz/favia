@@ -9,8 +9,13 @@ static int cu_sync_open(fav_track *t)
 
 static int cu_sync(fav_track *t)
 {
-	if (t->want_input)
+	if (t->want_input) {
+		if (t->state & TRK_FIN) {
+			dbglog(t, "finished");
+			return FAV_CU_FIN;
+		}
 		return FAV_CU_BACK;
+	}
 
 	int r = 0;
 	int n = 0x7fffffff;

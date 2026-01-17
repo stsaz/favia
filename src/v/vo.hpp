@@ -142,7 +142,7 @@ static int cu_v_open(fav_track *t)
 		return FAV_CU_ERROR;
 	}
 
-	struct vox *x = (struct vox*)fav_track_alloc(t, sizeof(struct vox));
+	struct vox *x = fav_track_allocT(t, struct vox);
 	new (x) (struct vox);
 	x->prev_pos_sec = ~0ULL;
 	t->vox = x;

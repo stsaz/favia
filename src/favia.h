@@ -111,6 +111,7 @@ struct fav_track_conf {
 
 static inline const struct fav_track_conf* fav_track_info(const fav_track *t) { return (struct fav_track_conf*)t; }
 static inline void* fav_track_alloc(const fav_track *t, uint n) { return ffmem_calloc(1, n); }
+#define fav_track_allocT(t, T)  (T*)fav_track_alloc(t, sizeof(T))
 static inline void fav_track_free(const fav_track *t, void *ptr) { return ffmem_free(ptr); }
 
 enum FAV_TRACK_E {

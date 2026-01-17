@@ -54,19 +54,20 @@ static void cu_in_close(fav_track *t)
 
 static int cu_in_open(fav_track *t)
 {
-	struct inx *x = (struct inx*)fav_track_alloc(t, sizeof(struct inx));
+	struct inx *x = fav_track_allocT(t, struct inx);
 	new (x) (struct inx);
 	x->trk = t;
 	t->inx = x;
-	// fav_track_free
 
 	if (x->input.open(t->conf.input.url, FFFILE_READONLY).null()) {
 		syserrlog(t, "Input open: %s", t->conf.input.url);
+		cu_in_close(t);
 		return FAV_CU_ERROR;
 	}
 
 	if (!t->dec.open(input_read, input_seek, x)) {
 		errlog(t, "Decoder open: %s", t->dec.error());
+		cu_in_close(t);
 		return FAV_CU_ERROR;
 	}
 	assert(t->dec.have_video());
@@ -117,6 +118,7 @@ static int cu_in_read(fav_track *t)
 			return FAV_CU_ERROR;
 		}
 		t->read_fin = 1;
+		t->have_pkt = 0;
 		return FAV_CU_FWD;
 	}
 	t->have_pkt = 1;
