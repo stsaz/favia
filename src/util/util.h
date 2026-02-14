@@ -10,3 +10,7 @@ static inline const char* time_print(uint64_t msec, char *buf, size_t cap)
 		, h, m, s, ms);
 	return buf;
 }
+
+#define INT32_MAKE1616(h, l)  ((((uint)(h) & 0xffff) << 16) | ((l) & 0xffff))
+#define INT32_LO16(i)  ((i) & 0xffff)
+#define INT32_HI16(i)  (((i) >> 16) & 0xffff)

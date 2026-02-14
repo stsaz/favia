@@ -107,6 +107,12 @@ struct exe {
 		return NULL;
 	}
 
+	void cursor_edge(int i) {
+		if (!i)
+			cursor = 0;
+		else
+			cursor = ffmax((int)input.len - 1, 0);
+	}
 	int cursor_move(int delta) {
 		int i = cursor + delta;
 		if (i < 0 || i >= input.len) {
@@ -127,7 +133,8 @@ static struct exe *x;
 #include <exe/log.h>
 #include <exe/cmd.hpp>
 
-static void core_open() {
+static void core_open()
+{
 	struct fav_core_conf cc = {
 #ifdef FF_DEBUG
 		.log_level = (x->debug) ? FAV_LOG_EXTRA : FAV_LOG_VERB,
@@ -144,6 +151,9 @@ static void core_open() {
 		.volume_step_pct = 5,
 		.seek_range_margin_msec = 500,
 	};
+	cc.move_dir[0] = "1";
+	cc.move_dir[1] = "2";
+	cc.move_dir[2] = "3";
 	core = core_init(&cc);
 }
 
@@ -204,7 +214,8 @@ static const struct fav_track_cu* trk_cu_set_play[] = {
 	NULL,
 };
 
-static fav_track* trk_new(const char *url) {
+static fav_track* trk_new(const char *url)
+{
 	struct fav_track_conf tc = {
 		.conveyor = trk_cu_set_play,
 		.input = {
@@ -232,7 +243,8 @@ static fav_track* trk_new(const char *url) {
 	return core->track->create(&tc);
 }
 
-static void exe_iq_start(void *param) {
+static void exe_iq_start(void *param)
+{
 	exe *x = (exe*)param;
 
 	for (;;) {
@@ -251,23 +263,35 @@ static void exe_iq_start(void *param) {
 	}
 }
 
-static void exe_signal(fav_track *trk, uint cmd, uint flags) {
+static void exe_signal(fav_track *trk, uint cmd, uint flags)
+{
 	uint next = 0, close = 1;
 	switch (cmd) {
-	case FAV_TRACK_NEXT:
-		if (x->cursor_move((flags & 1) ? 1 : -1))
-			return;
+	case FAV_TRACK_START:
+		switch (flags) {
+		case FAV_TRACK_START_FIRST:
+		case FAV_TRACK_START_LAST:
+			x->cursor_edge(flags == FAV_TRACK_START_LAST);  break;
+
+		case FAV_TRACK_START_PGNEXT:
+		case FAV_TRACK_START_PGPREV:
+			if (x->cursor_move((flags == FAV_TRACK_START_PGNEXT) ? 10 : -10))
+				return;
+			break;
+
+		case FAV_TRACK_START_NEXT:
+		case FAV_TRACK_START_PREV:
+			if (x->cursor_move((flags == FAV_TRACK_START_NEXT) ? 1 : -1))
+				return;
+			break;
+		}
 		next = 1; // stop this track, start next
 		break;
-
-	case FAV_TRACK_FULLSCREEN:
-		x->fullscreen = !!(flags & 1);
-		return;
 
 	case FAV_TRACK_WINDOW:
 		if (!x->parallel)
 			x->parallel = 1;
-		x->parallel += (flags & 1) ? 1 : -1;
+		x->parallel += (flags & FAV_TRACK_WND_ADD) ? 1 : -1;
 		if (x->parallel <= 1)
 			x->parallel = 0;
 		if (x->n_tracks < x->parallel) {
@@ -302,7 +326,7 @@ static void exe_signal(fav_track *trk, uint cmd, uint flags) {
 	}
 
 	if (close) {
-		core->track->close(trk);
+		core->track->close(trk, next);
 		x->n_tracks--;
 	}
 

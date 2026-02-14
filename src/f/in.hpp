@@ -83,6 +83,7 @@ static int cu_in_open(fav_track *t)
 		t->audio_channels = t->dec.audio_channels();
 	}
 	t->conf.no_sound = !t->audio_rate;
+	t->static_pic = t->dec.picture();
 
 	char buf[64];
 	infolog(t, "\"%s\"  %.02FMB  %s  %u streams"
@@ -90,6 +91,7 @@ static int cu_in_open(fav_track *t)
 		, (double)x->input.info().size() / (1024 * 1024)
 		, time_print(t->duration_msec, buf, sizeof(buf))
 		, t->dec.streams());
+	infolog(t, "Video: %ux%u", t->video_width, t->video_height);
 
 	if (t->conf.input.seek_msec) {
 		char buf[64];

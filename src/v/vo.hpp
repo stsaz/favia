@@ -7,6 +7,7 @@
 
 struct vomo {
 	uint init;
+	xxsdl v;
 };
 
 static struct vomo *vom;
@@ -25,6 +26,12 @@ static int vomo_init()
 		}
 	}
 	return 0;
+}
+
+static void v_obj_move(struct xxsdl *dst, struct xxsdl *src)
+{
+	*dst = *src;
+	ffmem_zero_obj(src);
 }
 
 static SDL_PixelFormat format_sdl_av(int av_format, SDL_BlendMode *blendmode)
@@ -99,6 +106,7 @@ static struct sdl_frame frame_sdl_av(const AVFrame *avf)
 struct vox {
 	xxsdl v;
 	uint vzoom;
+	uint draw :1;
 	uint64_t prev_pos_sec;
 };
 
@@ -109,26 +117,41 @@ static void cu_v_zoom(struct vox *x, fav_track *t, uint n)
 	uint w = t->video_width * x->vzoom / 100;
 	uint h = t->video_height * x->vzoom / 100;
 	x->v.window_size(w, h);
-	x->v.texture_rect(0, 0, w, h);
 }
 
-static bool cu_v_fullscreen_toggle(struct vox *x, fav_track *t)
+static void cu_v_fullscreen_toggle(struct vox *x, fav_track *t)
 {
-	uint w = t->video_width, h = t->video_height;
-	uint fs = x->v.fullscreen();
-	x->v.fullscreen(!fs);
-	if (fs) {
-		w = w * x->vzoom / 100;
-		h = h * x->vzoom / 100;
+	x->v.fullscreen(!x->v.fullscreen());
+}
+
+static void cu_v_size(struct vox *x, fav_track *t, uint rw, uint rh)
+{
+	uint xx = 0, y = 0, w = t->video_width, h = t->video_height;
+	double ratio = (double)w / h;
+	double rr = (double)rw / rh;
+	// ar  rr     res
+	// 2x1 1x1 -> 1x0.5
+	// 1x2 1x1 -> 0.5x1
+	if (rr < ratio)
+		rh = (double)rw / ratio;
+	else
+		rw = (double)rh * ratio;
+
+	if (x->v.fullscreen()) {
+		sdl_screen_center(&xx, &y, rw, rh);
 	}
-	x->v.texture_rect(0, 0, w, h);
-	t->redraw = 1;
-	return !fs;
+
+	x->v.texture_rect(xx, y, rw, rh);
 }
 
 static void cu_v_close(fav_track *t)
 {
 	struct vox *x = t->vox;
+
+	if (!vom->v.window && t->next) {
+		v_obj_move(&vom->v, &x->v);
+	}
+
 	x->~vox();
 	fav_track_free(t, x);
 }
@@ -147,14 +170,32 @@ static int cu_v_open(fav_track *t)
 	x->prev_pos_sec = ~0ULL;
 	t->vox = x;
 
-	if (!x->v.open(t->video_width, t->video_height, xxpath(t->conf.input.url).name().ptr)) {
-		errlog(t, "Video renderer: %s", x->v.error());
-		cu_v_close(t);
-		return FAV_CU_ERROR;
+	uint w = t->video_width;
+	uint h = t->video_height;
+	x->vzoom = sdl_screen_clamp(&w, &h, 0);
+	// Note: window border is not accounted for!
+
+	const char *title = xxpath(t->conf.input.url).name().ptr;
+	if (vom->v.window) {
+		v_obj_move(&x->v, &vom->v);
+		if (!x->v.fullscreen()) {
+			x->v.window_size(w, h);
+			x->v.texture_rect(0, 0, w, h);
+		} else {
+			x->v.fullscreen_size(&w, &h);
+			cu_v_size(x, t, w, h);
+		}
+		x->draw = 1;
+		x->v.title(title);
+	} else {
+		if (!x->v.open(w, h, title)) {
+			errlog(t, "Video renderer: %s", x->v.error());
+			cu_v_close(t);
+			return FAV_CU_ERROR;
+		}
 	}
 	t->vo_window = x->v.window;
 
-	x->vzoom = 100;
 	if (t->conf.video.fullscreen)
 		cu_v_fullscreen_toggle(x, t);
 	else if (t->conf.video.zoom)
@@ -186,6 +227,11 @@ static int cu_v_display(fav_track *t)
 
 	if (!(t->frame_flags & FAV_F_VIDEO))
 		return FAV_CU_FWD;
+
+	if (x->draw) {
+		x->draw = 0;
+		t->frame_flags |= FAV_F_REDRAW;
+	}
 
 	if (!(t->frame_flags & FAV_F_REDRAW)) {
 		if (t->vq->length() < 2) {
@@ -245,24 +291,18 @@ static int cu_v_ctl(fav_track *t, uint cmd, uint flags)
 	switch (cmd) {
 	case FAV_TRACK_WINDOW:
 		if (flags & FAV_TRACK_WND_RESIZED) {
-			uint rw = t->arg2 & 0xffff, rh = t->arg2 >> 16;
-			uint w = t->video_width, h = t->video_height;
-			// rw / rh := w / h
-			if (w >= h)
-				rh = (double)rw / ((double)w / h);
-			else
-				rw = (double)rh * ((double)w / h);
-			x->v.texture_rect(0, 0, rw, rh);
+			cu_v_size(x, t, INT32_LO16(t->arg2), INT32_HI16(t->arg2));
+			break;
+		}
+
+		if (flags & FAV_TRACK_WND_FULLSCREEN) {
+			cu_v_fullscreen_toggle(x, t);
+			break;
 		}
 
 		if (flags & FAV_TRACK_WND_NEXT) {
 			x->v.present();
 		}
-		break;
-
-	case FAV_TRACK_FULLSCREEN:
-		r = cu_v_fullscreen_toggle(x, t);
-		core->conf.signal(t, cmd, r);
 		break;
 
 	case FAV_TRACK_ZOOM:
@@ -273,6 +313,7 @@ static int cu_v_ctl(fav_track *t, uint cmd, uint flags)
 			r = ffmin(x->vzoom + core->conf.zoom_by_pct, 400);
 		else
 			r = ffmax((int)x->vzoom - core->conf.zoom_by_pct, 10);
+		r = ffint_align_floor(r, 10);
 		cu_v_zoom(x, t, r);
 		break;
 

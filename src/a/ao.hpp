@@ -65,6 +65,7 @@ static void cu_a_volume(struct aox *x, fav_track *t, uint n)
 static void cu_a_close(fav_track *t)
 {
 	struct aox *x = t->aox;
+	if (!x) return;
 	x->~aox();
 	fav_track_free(t, x);
 }
@@ -173,6 +174,9 @@ end:
 static int cu_a_ctl(fav_track *t, uint cmd, uint flags)
 {
 	struct aox *x = t->aox;
+	if (!x)
+		return 0;
+
 	int r;
 	switch (cmd) {
 	case FAV_TRACK_PAUSE:

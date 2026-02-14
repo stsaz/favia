@@ -36,7 +36,8 @@ struct audio {
 	uint cflags;
 
 	~audio() {
-		delete ab;
+		if (ab)
+			delete ab;
 		if (audio && --a_init_count == 0)
 			audio->uninit();
 	}

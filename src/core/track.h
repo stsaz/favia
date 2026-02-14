@@ -104,6 +104,8 @@ struct fav_track {
 	uint redraw :1;
 	uint read_fin :1;
 	uint audio_stream_switched :1;
+	uint next :1;
+	uint static_pic :1;
 	uint iframe;
 	uint want_input;
 	uint async_ret;

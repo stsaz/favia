@@ -44,7 +44,7 @@ int core_run() {
 		int n = tracks_run();
 		if (n > 0) {
 			n = ffmin(n, 20000);
-			dbglog("sleep %uus", n);
+			extralog("sleep %uus", n);
 			ffthread_usleep(n);
 		}
 

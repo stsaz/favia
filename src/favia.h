@@ -32,11 +32,17 @@ do { \
 	if (ff_unlikely(core->conf.log_level >= FAV_LOG_DEBUG)) \
 		core->log(FAV_LOG_DEBUG, NULL, __VA_ARGS__); \
 } while (0)
+#define fav_extralog(...) \
+do { \
+	if (ff_unlikely(core->conf.log_level >= FAV_LOG_EXTRA)) \
+		core->log(FAV_LOG_EXTRA, NULL, __VA_ARGS__); \
+} while (0)
 #define syserrlog  fav_syserrlog
 #define errlog  fav_errlog
 #define warnlog  fav_warnlog
 #define infolog  fav_infolog
 #define dbglog  fav_dbglog
+#define extralog  fav_extralog
 
 
 struct fav_core_conf {
@@ -50,6 +56,8 @@ struct fav_core_conf {
 	u_char zoom_by_pct;
 	u_char volume_step_pct;
 	ushort seek_range_margin_msec;
+
+	const char *move_dir[3];
 };
 
 enum FAV_TASK {
@@ -74,7 +82,7 @@ struct fav_core_if {
 struct fav_track_cu {
 	char name[16];
 	int (*open)(fav_track *t);
-	void (*close)(fav_track *t);
+	void (*close)(fav_track *tags);
 	int (*process)(fav_track *t);
 	int (*ctl)(fav_track *t, uint cmd, uint flags);
 };
@@ -121,14 +129,30 @@ enum FAV_TRACK_E {
 };
 
 enum FAV_TRACK_CMD_ARG {
+	FAV_TRACK_START_PREV = 0,
+	FAV_TRACK_START_NEXT,
+	FAV_TRACK_START_FIRST,
+	FAV_TRACK_START_LAST,
+	FAV_TRACK_START_PGNEXT,
+	FAV_TRACK_START_PGPREV,
+
+	FAV_TRACK_SEEK_FWD = 0,
 	FAV_TRACK_SEEK_REVERSE = 1,
 	FAV_TRACK_SEEK_LEAP = 2,
 	FAV_TRACK_SEEK_LEAP_PERCENT = 4,
 	FAV_TRACK_SEEK_LOOP = 8,
+
+	FAV_TRACK_WND_RM = 0,
+	FAV_TRACK_WND_ADD = 1,
 	FAV_TRACK_WND_NEXT = 2,
 	FAV_TRACK_WND_RESIZED = 4,
 	FAV_TRACK_WND_SHOWN = 8,
+	FAV_TRACK_WND_FULLSCREEN = 0x10,
+
 	FAV_TRACK_VOL_MUTE = 2,
+
+	FAV_TRACK_SRC_TRASH = 0,
+	FAV_TRACK_SRC_MOVE = 0x10,
 };
 
 enum FAV_TRACK_CMD {
@@ -139,17 +163,17 @@ enum FAV_TRACK_CMD {
 	FAV_TRACK_VOLUME, // int
 	FAV_TRACK_AUDIO_NEXT,
 	FAV_TRACK_SEEK, // int
-	FAV_TRACK_NEXT, // int
+	FAV_TRACK_START, // int
 	FAV_TRACK_STOP, // int
 	FAV_TRACK_QUIT,
 	FAV_TRACK_WINDOW, // int, int
-	FAV_TRACK_SOURCE,
+	FAV_TRACK_SOURCE, // int
 	FAV_TRACK_ADD, // char* (transient)
 };
 
 struct fav_track_if {
 	fav_track* (*create)(struct fav_track_conf *conf);
-	void (*close)(fav_track *t);
+	void (*close)(fav_track *t, uint flags);
 
 	/** cmd: enum FAV_TRACK_CMD */
 	int (*cmd)(fav_track *t, uint cmd, ...);

@@ -19,7 +19,7 @@ static int cu_sync(fav_track *t)
 
 	int r = 0;
 	int n = 0x7fffffff;
-	if (!(t->state & TRK_PAUSED)) {
+	if (!(t->state & (TRK_PAUSED | TRK_FIN))) {
 		r = t->sync.read(&n);
 		dbglog(t, "r:%u  VQ:%u  AQ:%u", r, t->vq->length(), t->aq->length());
 	}

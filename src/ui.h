@@ -3,6 +3,7 @@
 
 #include <ffsys/perf.h>
 #include <util/SDL.hpp>
+#include <util/util.h>
 #include <ffbase/stringz.h>
 
 struct ui {
@@ -19,31 +20,40 @@ static struct ui_key ui_keymap[] = {
 	{ SDLK_LEFT, 		0,								FAV_TRACK_SEEK, FAV_TRACK_SEEK_REVERSE },
 	{ SDLK_LEFT, 		SDL_KMOD_CTRL,					FAV_TRACK_SEEK, FAV_TRACK_SEEK_LEAP | FAV_TRACK_SEEK_REVERSE },
 	{ SDLK_LEFT, 		SDL_KMOD_CTRL | SDL_KMOD_SHIFT,	FAV_TRACK_SEEK, FAV_TRACK_SEEK_LEAP_PERCENT | FAV_TRACK_SEEK_REVERSE },
-	{ SDLK_RIGHT, 		0,								FAV_TRACK_SEEK, 0 },
+	{ SDLK_RIGHT, 		0,								FAV_TRACK_SEEK, FAV_TRACK_SEEK_FWD },
 	{ SDLK_RIGHT, 		SDL_KMOD_CTRL,					FAV_TRACK_SEEK, FAV_TRACK_SEEK_LEAP },
 	{ SDLK_RIGHT, 		SDL_KMOD_CTRL | SDL_KMOD_SHIFT,	FAV_TRACK_SEEK, FAV_TRACK_SEEK_LEAP_PERCENT },
 	{ SDLK_UP,			0,								FAV_TRACK_VOLUME, 1 },
 
-	{ SDLK_EQUALS,		SDL_KMOD_CTRL | SDL_KMOD_SHIFT,	FAV_TRACK_WINDOW, 1 },
+	{ SDLK_EQUALS,		SDL_KMOD_CTRL | SDL_KMOD_SHIFT,	FAV_TRACK_WINDOW, FAV_TRACK_WND_ADD },
 	{ SDLK_EQUALS,		SDL_KMOD_SHIFT,					FAV_TRACK_ZOOM, 1 },
 	{ SDLK_MINUS,		0,								FAV_TRACK_ZOOM, 0 },
-	{ SDLK_MINUS,		SDL_KMOD_CTRL,					FAV_TRACK_WINDOW, 0 },
+	{ SDLK_MINUS,		SDL_KMOD_CTRL,					FAV_TRACK_WINDOW, FAV_TRACK_WND_RM },
 	{ SDLK_SPACE,		0,								FAV_TRACK_PAUSE, 0 },
 	{ SDLK_TAB,			0,								FAV_TRACK_WINDOW, FAV_TRACK_WND_NEXT },
-	{ SDLK_DELETE,		SDL_KMOD_SHIFT,					FAV_TRACK_SOURCE, 0 },
+	{ SDLK_DELETE,		SDL_KMOD_SHIFT,					FAV_TRACK_SOURCE, FAV_TRACK_SRC_TRASH },
 	{ SDLK_LEFTBRACKET,	0,								FAV_TRACK_SEEK, FAV_TRACK_SEEK_LOOP },
 	{ SDLK_RIGHTBRACKET,0,								FAV_TRACK_SEEK, FAV_TRACK_SEEK_LOOP | FAV_TRACK_SEEK_REVERSE },
 
+	{ SDLK_HOME,		0,								FAV_TRACK_START, FAV_TRACK_START_FIRST },
+	{ SDLK_END,			0,								FAV_TRACK_START, FAV_TRACK_START_LAST },
+	{ SDLK_PAGEUP,		0,								FAV_TRACK_START, FAV_TRACK_START_PGPREV },
+	{ SDLK_PAGEDOWN,	0,								FAV_TRACK_START, FAV_TRACK_START_PGNEXT },
+
 	{ SDLK_KP_MINUS,	0,								FAV_TRACK_ZOOM, 0 },
-	{ SDLK_KP_MINUS,	SDL_KMOD_CTRL,					FAV_TRACK_WINDOW, 0 },
+	{ SDLK_KP_MINUS,	SDL_KMOD_CTRL,					FAV_TRACK_WINDOW, FAV_TRACK_WND_RM },
 	{ SDLK_KP_PLUS,		0,								FAV_TRACK_ZOOM, 1 },
-	{ SDLK_KP_PLUS,		SDL_KMOD_CTRL,					FAV_TRACK_WINDOW, 1 },
+	{ SDLK_KP_PLUS,		SDL_KMOD_CTRL,					FAV_TRACK_WINDOW, FAV_TRACK_WND_ADD },
+
+	{ SDLK_F1,			0,								FAV_TRACK_SOURCE, FAV_TRACK_SRC_MOVE + 0 },
+	{ SDLK_F2,			0,								FAV_TRACK_SOURCE, FAV_TRACK_SRC_MOVE + 1 },
+	{ SDLK_F3,			0,								FAV_TRACK_SOURCE, FAV_TRACK_SRC_MOVE + 2 },
 
 	{ SDLK_A,			0,								FAV_TRACK_AUDIO_NEXT, 0 },
-	{ SDLK_F,			0,								FAV_TRACK_FULLSCREEN, 0 },
+	{ SDLK_F,			0,								FAV_TRACK_WINDOW, FAV_TRACK_WND_FULLSCREEN },
 	{ SDLK_M,			0,								FAV_TRACK_VOLUME, FAV_TRACK_VOL_MUTE },
-	{ SDLK_N,			0,								FAV_TRACK_NEXT, 1 },
-	{ SDLK_P,			0,								FAV_TRACK_NEXT, 0 },
+	{ SDLK_N,			0,								FAV_TRACK_START, FAV_TRACK_START_NEXT },
+	{ SDLK_P,			0,								FAV_TRACK_START, FAV_TRACK_START_PREV },
 	{ SDLK_Q,			0,								FAV_TRACK_QUIT, 0 },
 };
 
@@ -108,7 +118,8 @@ int user_events() {
 				fftime t = fftime_monotonic();
 				uint64_t ts = fftime_to_msec(&t);
 				if (ts < ui.mlclick_ts + 400) {
-					cmd = FAV_TRACK_FULLSCREEN;
+					cmd = FAV_TRACK_WINDOW;
+					arg1 = FAV_TRACK_WND_FULLSCREEN;
 					ui.mlclick_ts = 0;
 				} else {
 					ui.mlclick_ts = ts;
@@ -132,7 +143,7 @@ int user_events() {
 			cmd = FAV_TRACK_ADD;  arg1_ptr = ffsz_dup(e->drop.data);  break;
 
 		case SDL_EVENT_WINDOW_RESIZED:
-			cmd = FAV_TRACK_WINDOW, arg1 = FAV_TRACK_WND_RESIZED, arg2 = e->display.data1 | (e->display.data2 << 16);  break;
+			cmd = FAV_TRACK_WINDOW, arg1 = FAV_TRACK_WND_RESIZED, arg2 = INT32_MAKE1616(e->display.data2, e->display.data1);  break;
 
 		case SDL_EVENT_WINDOW_EXPOSED:
 			cmd = FAV_TRACK_WINDOW, arg1 = FAV_TRACK_WND_SHOWN;  break;
@@ -146,7 +157,8 @@ process:
 			if (!wnd[i])
 				continue;
 			fav_track *t = core->track->find(wnd[i]);
-			assert(t);
+			if (!t)
+				continue; // the window is in cache
 			if (cmd == FAV_TRACK_ADD)
 				core->track->cmd(t, cmd, arg1_ptr);
 			else

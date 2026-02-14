@@ -15,6 +15,7 @@
 #include <v/vo.hpp>
 #include <a/ao.hpp>
 #include <f/until.hpp>
+#include <ffsys/dir.h>
 
 // enum FAV_CU
 const char _fav_cu[][14] = {
@@ -89,8 +90,10 @@ static void track_busytime_print(fav_track *t)
 	infolog(t, "%S", &buf);
 }
 
-static void track_close(fav_track *t)
+static void track_close(fav_track *t, uint flags)
 {
+	t->next = !!(flags & 1);
+
 	fav_track **it;
 	FFSLICE_WALK(&xt->tracks, it) {
 		if (t == *it) {
@@ -127,6 +130,50 @@ static fav_track* tracks_next(fav_track *t)
 	return NULL;
 }
 
+static int trk_src_move(fav_track *t, uint i)
+{
+	ffstr dir, name;
+	ffpath_splitpath_str(FFSTR_Z(t->conf.input.url), &dir, &name);
+	if (dir.len)
+		dir.len++;
+	const char *move_dir = core->conf.move_dir[i];
+
+	xxvec oname;
+	oname.add_f("%S%s/%S%Z", &dir, move_dir, &name);
+	if (fffile_rename(t->conf.input.url, oname.sz())) {
+		if (ffdir_make(xxvec().add_f("%S%s%Z", &dir, move_dir).sz())) {
+			warnlog(t, "file move: %s", fferr_strptr(fferr_last()));
+			return -1;
+		}
+		if (fffile_rename(t->conf.input.url, oname.sz())) {
+			warnlog(t, "file move: %s", fferr_strptr(fferr_last()));
+			return -1;
+		}
+	}
+
+	infolog(t, "File moved: %s", oname.sz());
+	return 0;
+}
+
+static int trk_src_trash(fav_track *t)
+{
+#ifdef FF_WIN
+	if (ffui_file_del(&t->conf.input.url, 1, FFUI_FILE_TRASH)) {
+		warnlog(t, "moving file to trash: %s", fferr_strptr(fferr_last()));
+		return -1;
+	}
+#else
+	const char *e;
+	if (ffui_glib_trash(t->conf.input.url, &e)) {
+		warnlog(t, "moving file to trash: %s", e);
+		return -1;
+	}
+#endif
+
+	infolog(t, "Moved to Trash: %s", t->conf.input.url);
+	return 0;
+}
+
 static int track_cmd(fav_track *t, uint cmd, ...)
 {
 	int r;
@@ -149,35 +196,39 @@ static int track_cmd(fav_track *t, uint cmd, ...)
 
 	switch (cmd) {
 
-	case FAV_TRACK_NEXT:
+	case FAV_TRACK_START:
 	case FAV_TRACK_STOP:
 	case FAV_TRACK_QUIT:
-	case FAV_TRACK_WINDOW:
-		if (cmd == FAV_TRACK_WINDOW && (flags & FAV_TRACK_WND_SHOWN)) {
-			t->redraw = 1;
-			break;
-
-		} else if (cmd == FAV_TRACK_WINDOW && (flags & FAV_TRACK_WND_RESIZED)) {
-			t->arg2 = arg2;
-			break;
-
-		} else if (cmd == FAV_TRACK_WINDOW && (flags & FAV_TRACK_WND_NEXT)) {
-			t = tracks_next(t);
-			if (!t)
-				return 0;
-			break;
-		}
-
 		core->conf.signal(t, cmd, flags);
 		break;
 
+	case FAV_TRACK_WINDOW:
+		if (flags & FAV_TRACK_WND_SHOWN) {
+			t->redraw = 1;
+
+		} else if (flags & FAV_TRACK_WND_RESIZED) {
+			t->arg2 = arg2;
+
+		} else if (flags & FAV_TRACK_WND_NEXT) {
+			t = tracks_next(t);
+			if (!t)
+				return 0;
+
+		} else if (flags == FAV_TRACK_WND_ADD
+			|| flags == FAV_TRACK_WND_RM) {
+			core->conf.signal(t, cmd, flags);
+		}
+		break;
+
 	case FAV_TRACK_SOURCE:
-#ifdef FF_WIN
-		if (!ffui_file_del(&t->conf.input.url, 1, FFUI_FILE_TRASH))
-#else
-		if (!ffui_glib_trash(t->conf.input.url, NULL))
-#endif
-			infolog(t, "Moved to Trash: %s", t->conf.input.url);
+		if (flags & FAV_TRACK_SRC_MOVE) {
+			if (!trk_src_move(t, flags - FAV_TRACK_SRC_MOVE))
+				core->conf.signal(t, FAV_TRACK_START, FAV_TRACK_START_NEXT);
+
+		} else if (flags == FAV_TRACK_SRC_TRASH) {
+			if (!trk_src_trash(t))
+				core->conf.signal(t, FAV_TRACK_START, FAV_TRACK_START_NEXT);
+		}
 		break;
 
 	case FAV_TRACK_STATUS:
@@ -202,6 +253,13 @@ static int track_cmd(fav_track *t, uint cmd, ...)
 					, time_print(t->loop_start, buf1, sizeof(buf1))
 					, time_print(t->loop_end, buf2, sizeof(buf2)));
 			}
+			return 0;
+		}
+
+		if (t->static_pic
+			&& (flags == FAV_TRACK_SEEK_FWD || flags == FAV_TRACK_SEEK_REVERSE)) {
+			// Left/Right arrows -> navigate to prev/next image
+			core->conf.signal(t, FAV_TRACK_START, (flags == FAV_TRACK_SEEK_FWD) ? FAV_TRACK_START_NEXT : FAV_TRACK_START_PREV);
 			return 0;
 		}
 
@@ -236,7 +294,6 @@ static int trk_init(fav_track *t)
 	for (uint i = 0;  i < t->conv.n;  i++) {
 		const struct fav_track_cu *cu = &t->conv.units[i];
 		dbglog(t, "opening '%s'", cu->name);
-		t->conv.opened[i] = 1;
 		if (cu->open) {
 
 			fftime t1, t2;
@@ -261,6 +318,7 @@ static int trk_init(fav_track *t)
 				return -1;
 			}
 		}
+		t->conv.opened[i] = 1;
 	}
 	return 0;
 }
@@ -269,7 +327,7 @@ static int track_run(fav_track *t)
 {
 	if (!t->conv.opened[0]) {
 		if (trk_init(t))
-			return FAV_CU_ERROR;
+			goto end;
 		return FAV_CU_FWD;
 	}
 
@@ -337,6 +395,7 @@ done:
 		return 0x7fffffff;
 	}
 
+end:
 	core->conf.signal(t, FAV_TRACK_STOP, 1);
 	return -1;
 }

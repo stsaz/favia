@@ -34,9 +34,12 @@ favia -zoom 50 -mute -parallel 4 *.mp4
 | --- | --- |
 | `q`          | Quit |
 | `n/p`        | Next/Previous input file |
+| `PgDn/PgUp`  | Next/Previous input file (by 10) |
+| `Home/End`   | First/Last input file |
 | `Space`      | Pause/Resume |
 | `[Ctrl+/Ctrl+Shift+]Left/Right` | Seek |
 | `Shift+Del`  | Move source file to Trash |
+| `F[1-3]`     | Move source file to a directory |
 | Video:       | |
 | `+/- or Ctrl+MouseWheel` | Zoom |
 | `f`          | Fullscreen |
