@@ -47,6 +47,7 @@ Options:\n\
   `-volume` PERCENT   Set audio volume\n\
 \n\
   `-parallel` N       Play N files in parallel\n\
+  `-autodir`          Enqueue sibling files\n\
   `-nodisplay`        Don't display video\n\
   `-nosound`          Don't play audio\n\
 \n\
@@ -86,6 +87,7 @@ static int arg_input(struct exe *x, const char *s) {
 static const struct ffarg cmd_root[] = {
 	{ "-Debug",		'1',	O(debug) },
 
+	{ "-autodir",	'1',	O(autodir) },
 	{ "-h",			'1',	(void*)arg_help },
 	{ "-help",		'1',	(void*)arg_help },
 	{ "-hwaccel",	's',	O(hwaccel) },

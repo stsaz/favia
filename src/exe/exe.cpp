@@ -23,6 +23,7 @@ struct exe {
 
 	const char *cmd_line;
 	const char *hwaccel;
+	u_char autodir;
 	u_char debug;
 	u_char fullscreen;
 	u_char mute;
@@ -38,7 +39,7 @@ struct exe {
 	xxvec input; // const char*[]
 	struct ffargs *cmd;
 
-	int dir_read(const char *fn, uint ins_pos) {
+	int dir_read(const char *fn, uint ins_pos, uint flags) {
 		int rc = 1;
 		ffdirscan ds = {};
 		fntree_block *root = NULL, *blk;
@@ -67,6 +68,8 @@ struct exe {
 			if (fffile_info_path(fpath, &fi.info))
 				continue;
 			if (fi.dir()) {
+				if (!(flags & 1))
+					continue;
 				ffmem_zero_obj(&ds);
 				if (ffdirscan_open(&ds, fpath, 0))
 					continue;
@@ -81,8 +84,8 @@ struct exe {
 			}
 
 			this->input.insert<char*>(fpath, ins_pos++);
-			dbglog("input queue: add \"%s\"", fpath);
 			fpath = NULL;
+			dbglog("input queue: add \"%s\"", fpath);
 		}
 
 		rc = 0;
@@ -99,7 +102,7 @@ struct exe {
 			const char *fn = *this->input.at<char*>(this->cursor);
 			if (xxfile::info(fn).dir()) {
 				this->input.remove<char*>(this->cursor, 1);
-				dir_read(fn, this->cursor);
+				dir_read(fn, this->cursor, 1);
 				continue;
 			}
 			return fn;
@@ -254,6 +257,12 @@ static void exe_iq_start(void *param)
 
 		fav_track *t = trk_new(fn);
 		x->n_tracks++;
+
+		if (x->autodir) {
+			x->autodir = 0;
+			x->dir_read(xxvec().copy(xxpath(fn).path()).strz(), 1, 0); // add all files from the source file's directory
+		}
+
 		if (!x->parallel)
 			break;
 

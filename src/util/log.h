@@ -2,6 +2,7 @@
 2022, Simon Zolin */
 
 #pragma once
+#include <ffsys/error.h>
 #include <ffsys/file.h>
 #include <ffsys/std.h>
 
