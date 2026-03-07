@@ -23,7 +23,6 @@ const char _fav_cu[][14] = {
 	"FAV_CU_BACK",
 	"FAV_CU_ASYNC",
 	"FAV_CU_ERROR",
-	"FAV_CU_WARN",
 	"FAV_CU_DONE",
 	"FAV_CU_FIN",
 };
@@ -374,9 +373,6 @@ static int track_run(fav_track *t)
 
 		case FAV_CU_FIN:
 			goto done;
-
-		case FAV_CU_WARN:
-			return 0;
 
 		case FAV_CU_ERROR:
 			t->error = FAV_TRACK_E_OTHER;

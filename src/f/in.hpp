@@ -65,6 +65,13 @@ static int cu_in_open(fav_track *t)
 		return FAV_CU_ERROR;
 	}
 
+	static u_char config;
+	if (!config) {
+		config = 1;
+		if (core->conf.log_level < FAV_LOG_DEBUG)
+			ffmpeg_config(AV_LOG_QUIET);
+	}
+
 	if (!t->dec.open(input_read, input_seek, x)) {
 		errlog(t, "Decoder open: %s", t->dec.error());
 		cu_in_close(t);
@@ -86,12 +93,27 @@ static int cu_in_open(fav_track *t)
 	t->static_pic = t->dec.picture();
 
 	char buf[64];
-	infolog(t, "\"%s\"  %.02FMB  %s  %u streams"
+	infolog(t, "\"%s\"  %.02FMB  %s  %s  %u streams"
 		, t->conf.input.url
 		, (double)x->input.info().size() / (1024 * 1024)
+		, t->dec.format_name()
 		, time_print(t->duration_msec, buf, sizeof(buf))
 		, t->dec.streams());
-	infolog(t, "Video: %ux%u", t->video_width, t->video_height);
+
+	if (t->dec.have_video()) {
+		infolog(t, "Video: %s %ux%u"
+			, t->dec.video_codec_name()
+			, t->video_width, t->video_height
+			);
+	}
+
+	if (t->dec.have_audio()) {
+		infolog(t, "Audio: %s %uHz %u channels"
+			, t->dec.audio_codec_name()
+			, t->audio_rate
+			, t->audio_channels
+			);
+	}
 
 	if (t->conf.input.seek_msec) {
 		char buf[64];
@@ -104,7 +126,9 @@ static int cu_in_open(fav_track *t)
 
 static void cu_in_pkt_log(fav_track *t, const xxffmpeg_packet &pkt)
 {
-	double tb = (pkt.stream_index() == t->dec.video_stream) ? t->dec.video_time_base() : t->dec.audio_time_base();
+	double tb = (pkt.stream_index() == t->dec.video_stream) ? t->dec.video_time_base()
+		: (pkt.stream_index() == t->dec.audio_stream) ? t->dec.audio_time_base()
+		: 0;
 	dbglog(t, "frame #%u  stream:%u  pts:%u  ts:%u  size:%u  dur:%u"
 		, t->iframe++, pkt.stream_index(), pkt.pts()
 		, (int)(tb * pkt.pts() * 1000000)

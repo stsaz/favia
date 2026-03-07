@@ -1,0 +1,9 @@
+[Desktop Entry]
+Comment=Fast video app
+Exec=favia %F
+GenericName=Fast video app
+Icon=
+MimeType=video/x-avi;video/avi;video/mkv;video/mp4;video/x-ms-wmv;
+Name=favia
+Type=Application
+Categories=AudioVideo;Video

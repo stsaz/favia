@@ -147,6 +147,8 @@ static void core_open()
 		.log = exe_log,
 		.signal = exe_signal,
 
+		.nav_page_delta = 10,
+
 		.seek_step_sec = 5,
 		.seek_leap_sec = 60,
 		.seek_leap_pct = 5,
@@ -284,7 +286,7 @@ static void exe_signal(fav_track *trk, uint cmd, uint flags)
 
 		case FAV_TRACK_START_PGNEXT:
 		case FAV_TRACK_START_PGPREV:
-			if (x->cursor_move((flags == FAV_TRACK_START_PGNEXT) ? 10 : -10))
+			if (x->cursor_move((flags == FAV_TRACK_START_PGNEXT) ? core->conf.nav_page_delta : -(int)core->conf.nav_page_delta))
 				return;
 			break;
 

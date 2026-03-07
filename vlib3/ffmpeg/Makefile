@@ -42,11 +42,13 @@ CONFIGURE_FLAGS += --disable-static --enable-shared \
 CONFIGURE_FLAGS += \
 	--enable-protocol=file \
 	\
+	--enable-demuxer=asf \
+	--enable-demuxer=asf_o \
 	--enable-demuxer=avi \
 	--enable-demuxer=m4v \
 	--enable-demuxer=matroska \
-	--enable-demuxer=mpegts \
 	--enable-demuxer=mov \
+	--enable-demuxer=mpegts \
 	\
 	--enable-decoder=av1 \
 	--enable-decoder=h264 \
@@ -56,8 +58,6 @@ CONFIGURE_FLAGS += \
 	--enable-decoder=mpeg4 \
 	--enable-decoder=mpegvideo \
 	--enable-decoder=vp9 \
-	--enable-decoder=wmv1 \
-	--enable-decoder=wmv2 \
 	--enable-decoder=wmv3 \
 	\
 	--enable-decoder=aac \
@@ -70,7 +70,8 @@ CONFIGURE_FLAGS += \
 	--enable-decoder=mp3 \
 	--enable-decoder=mp3float \
 	--enable-decoder=opus \
-	--enable-decoder=vorbis
+	--enable-decoder=vorbis \
+	--enable-decoder=wmav2
 
 CONFIGURE_FLAGS += \
 	--enable-demuxer=image_bmp_pipe \

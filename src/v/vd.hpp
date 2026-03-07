@@ -5,7 +5,9 @@
 
 static int cu_avdec_open(fav_track *t)
 {
-	if (!t->dec.hwaccel_enable(t->conf.decoder.hw_accel))
+	if (*t->conf.decoder.hw_accel
+		&& !t->static_pic
+		&& !t->dec.hwaccel_enable(t->conf.decoder.hw_accel))
 		warnlog(t, "HW decoding is inactive: %s", t->dec.error());
 
 	t->vq = queue_alloc(t->conf.decoder.q_size);
@@ -66,7 +68,7 @@ static int cu_av_decode(fav_track *t)
 			if (r > 0)
 				goto done; // this packet is completely processed
 			warnlog(t, "Video packet decode: %s", t->dec.error());
-			return FAV_CU_WARN;
+			goto done;
 		}
 
 		f->ts = t->dec.video_time_base() * t->pkt.pts() * 1000000;
@@ -86,7 +88,7 @@ static int cu_av_decode(fav_track *t)
 			if (r > 0)
 				goto done; // this packet is completely processed
 			warnlog(t, "Audio packet decode: %s", t->dec.error());
-			return FAV_CU_WARN;
+			goto done;
 		}
 
 		f->ts = t->dec.audio_time_base() * t->pkt.pts() * 1000000;

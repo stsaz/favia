@@ -1,7 +1,7 @@
 /** favia
 2025, Simon Zolin */
 
-#define FAV_VER  105
+#define FAV_VER  106
 
 #include <ffsys/base.h>
 #include <stdint.h>
@@ -49,6 +49,8 @@ struct fav_core_conf {
 	uint log_level;
 	void (*log)(uint level, const char *id, const char *format, ...);
 	void (*signal)(fav_track *trk, uint cmd, uint flags);
+
+	u_char nav_page_delta;
 
 	u_char seek_step_sec;
 	u_char seek_leap_sec;
