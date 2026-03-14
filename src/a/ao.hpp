@@ -2,6 +2,7 @@
 2025, Simon Zolin */
 
 #include <a/audio.hpp>
+#include <util/avqueue.hpp>
 
 static int format_ffa_avf(int avf, bool *interleaved)
 {
@@ -83,7 +84,7 @@ static int cu_a_open(fav_track *t)
 	if ((t->conf.no_sound = !a_open(x, t)))
 		return FAV_CU_FWD;
 
-	t->sync.audio((x->a.buf_len_msec) ? x->a.buf_len_msec : 500);
+	t->sync->audio((x->a.buf_len_msec) ? x->a.buf_len_msec : 500);
 
 	x->avolume = 100;
 	if (t->conf.audio.volume)
@@ -117,10 +118,10 @@ static int cu_a_play(fav_track *t)
 		t->conf.no_sound = !a_open(x, t);
 		x->a.volume(x->avolume);
 
-		t->sync.reset();
-		t->sync.master = 0;
+		t->sync->reset();
+		t->sync->master = 0;
 		if (!t->conf.no_sound)
-			t->sync.audio((x->a.buf_len_msec) ? x->a.buf_len_msec : 500);
+			t->sync->audio((x->a.buf_len_msec) ? x->a.buf_len_msec : 500);
 		return FAV_CU_BACK;
 	}
 
@@ -132,7 +133,7 @@ static int cu_a_play(fav_track *t)
 		goto end;
 	}
 
-	avf = f->frame.frame;
+	avf = f->frame;
 	bool interleaved;
 	if (0 > (r = format_ffa_avf(avf->format, &interleaved))) {
 		errlog(t, "AV audio format is not supported: %d", avf->format);
@@ -153,18 +154,19 @@ static int cu_a_play(fav_track *t)
 	if (!(r = x->a.write(data))) {
 		complete = 1;
 	} else if (r == 1) {
-		t->sync.a_start();
+		t->sync->a_start();
 	}
 	}
 
 	if (complete) {
-		t->sync.frame(f->ts, f->dur, 1);
+		t->sync->frame(f->ts, f->dur, 1);
 	}
 
 end:
 	if (complete) {
 		f = t->aq->read();
-		t->cur_pos_msec = f->ts / 1000; // TODO
+		if (!t->video_width)
+			t->cur_pos_msec = t->sync->pos() / 1000;
 		f->unref();
 		t->input_full &= ~FAV_F_AUDIO;
 	}

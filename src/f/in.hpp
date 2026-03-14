@@ -1,8 +1,13 @@
 /** favia: AV packet reading CU
 2025, Simon Zolin */
 
+#include <util/ffmpeg.h>
+#include <util/util.hpp>
+
 struct inx {
 	xxfile input;
+	xxffmpeg_dec dec;
+	xxffmpeg_packet pkt;
 	fav_track *trk;
 };
 
@@ -58,6 +63,8 @@ static int cu_in_open(fav_track *t)
 	new (x) (struct inx);
 	x->trk = t;
 	t->inx = x;
+	t->dec = &x->dec;
+	t->pkt = &x->pkt;
 
 	if (x->input.open(t->conf.input.url, FFFILE_READONLY).null()) {
 		syserrlog(t, "Input open: %s", t->conf.input.url);
@@ -72,44 +79,45 @@ static int cu_in_open(fav_track *t)
 			ffmpeg_config(AV_LOG_QUIET);
 	}
 
-	if (!t->dec.open(input_read, input_seek, x)) {
-		errlog(t, "Decoder open: %s", t->dec.error());
+	if (!t->dec->open(input_read, input_seek, x)) {
+		errlog(t, "Decoder open: %s", t->dec->error());
 		cu_in_close(t);
 		return FAV_CU_ERROR;
 	}
-	assert(t->dec.have_video());
+	t->picture = t->dec->picture();
+	assert(t->dec->have_video());
 
-	t->duration_msec = t->dec.duration();
+	t->duration_msec = t->dec->duration();
 
-	t->video_width = t->dec.video_width();
-	t->video_height = t->dec.video_height();
+	t->video_width = t->dec->video_width();
+	t->video_height = t->dec->video_height();
 
-	if (t->dec.have_audio()) {
-		t->audio_format = t->dec.audio_format();
-		t->audio_rate = t->dec.audio_rate();
-		t->audio_channels = t->dec.audio_channels();
+	if (t->dec->have_audio()) {
+		t->audio_format = t->dec->audio_format();
+		t->audio_rate = t->dec->audio_rate();
+		t->audio_channels = t->dec->audio_channels();
 	}
 	t->conf.no_sound = !t->audio_rate;
-	t->static_pic = t->dec.picture();
+	t->static_pic = t->dec->picture();
 
 	char buf[64];
 	infolog(t, "\"%s\"  %.02FMB  %s  %s  %u streams"
 		, t->conf.input.url
 		, (double)x->input.info().size() / (1024 * 1024)
-		, t->dec.format_name()
+		, t->dec->format_name()
 		, time_print(t->duration_msec, buf, sizeof(buf))
-		, t->dec.streams());
+		, t->dec->streams());
 
-	if (t->dec.have_video()) {
+	if (t->dec->have_video()) {
 		infolog(t, "Video: %s %ux%u"
-			, t->dec.video_codec_name()
+			, t->dec->video_codec_name()
 			, t->video_width, t->video_height
 			);
 	}
 
-	if (t->dec.have_audio()) {
+	if (t->dec->have_audio()) {
 		infolog(t, "Audio: %s %uHz %u channels"
-			, t->dec.audio_codec_name()
+			, t->dec->audio_codec_name()
 			, t->audio_rate
 			, t->audio_channels
 			);
@@ -118,7 +126,7 @@ static int cu_in_open(fav_track *t)
 	if (t->conf.input.seek_msec) {
 		char buf[64];
 		dbglog(t, "seek: %s", time_print(t->conf.input.seek_msec, buf, sizeof(buf)));
-		t->dec.seek(t->conf.input.seek_msec * 1000);
+		t->dec->seek(t->conf.input.seek_msec * 1000);
 	}
 
 	return FAV_CU_FWD;
@@ -126,8 +134,8 @@ static int cu_in_open(fav_track *t)
 
 static void cu_in_pkt_log(fav_track *t, const xxffmpeg_packet &pkt)
 {
-	double tb = (pkt.stream_index() == t->dec.video_stream) ? t->dec.video_time_base()
-		: (pkt.stream_index() == t->dec.audio_stream) ? t->dec.audio_time_base()
+	double tb = (pkt.stream_index() == t->dec->video_stream) ? t->dec->video_time_base()
+		: (pkt.stream_index() == t->dec->audio_stream) ? t->dec->audio_time_base()
 		: 0;
 	dbglog(t, "frame #%u  stream:%u  pts:%u  ts:%u  size:%u  dur:%u"
 		, t->iframe++, pkt.stream_index(), pkt.pts()
@@ -137,10 +145,11 @@ static void cu_in_pkt_log(fav_track *t, const xxffmpeg_packet &pkt)
 
 static int cu_in_read(fav_track *t)
 {
+	struct inx *x = t->inx;
 	int r;
-	if ((r = t->dec.read(&t->pkt))) {
+	if ((r = t->dec->read(&x->pkt))) {
 		if (r < 0) {
-			errlog(t, "input read: %s", t->dec.error());
+			errlog(t, "input read: %s", t->dec->error());
 			return FAV_CU_ERROR;
 		}
 		t->read_fin = 1;
@@ -148,7 +157,7 @@ static int cu_in_read(fav_track *t)
 		return FAV_CU_FWD;
 	}
 	t->have_pkt = 1;
-	cu_in_pkt_log(t, t->pkt);
+	cu_in_pkt_log(t, x->pkt);
 	return FAV_CU_FWD;
 }
 
@@ -163,11 +172,11 @@ static int cu_in_ctl(fav_track *t, uint cmd, uint flags)
 			r = !(flags & FAV_TRACK_SEEK_LEAP) ? core->conf.seek_step_sec : core->conf.seek_leap_sec;
 		if (flags & FAV_TRACK_SEEK_REVERSE)
 			r = -r;
-		uint64_t pos_msec = t->sync.pos() / 1000 + r * 1000;
+		uint64_t pos_msec = t->cur_pos_msec + r * 1000;
 
 		char buf[64];
 		infolog(t, "Seek: %s", time_print(pos_msec, buf, sizeof(buf)));
-		t->dec.seek(pos_msec * 1000);
+		t->dec->seek(pos_msec * 1000);
 		t->have_pkt = 0;
 		t->read_fin = 0;
 		t->conv.i = 0;

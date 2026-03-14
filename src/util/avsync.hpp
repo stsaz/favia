@@ -36,7 +36,7 @@ struct avsync {
 
 	void a_start() {
 		if (!a_active)
-			dbglog("audio started");
+			fav_dbglog("audio started");
 		uint64_t rt_now = now();
 		rt_last[0] = rt_last[1] = rt_now;
 		a_sig_next = rt_now + a_buf_usec/4; // update audio 4 times per buffer
@@ -44,11 +44,11 @@ struct avsync {
 	}
 
 	// ts, dur: usec
-	void frame(uint64_t ts, uint dur, uint flags) {
+	uint64_t frame(uint64_t ts, uint dur, uint flags) {
 		int i = !!(flags & 1);
 
 		if (ts < ts_next[i]) {
-			dbglog("fix non-monotonic PTS: %U -> %U", ts, ts_next[i]);
+			fav_dbglog("fix non-monotonic PTS: %U -> %U", ts, ts_next[i]);
 			ts = ts_next[i];
 		}
 
@@ -56,6 +56,7 @@ struct avsync {
 		ts_next[i] = ts + dur;
 
 		rt_last[i] = now();
+		return ts;
 	}
 
 	/**
@@ -68,7 +69,7 @@ struct avsync {
 		uint64_t rt_now = now();
 
 		uint64_t rtj = rt_now - rt_last[master] + pos();
-		dbglog("rtj:%D[%D,%D]  vts:%U-%U  ats:%U-%U"
+		fav_dbglog("rtj:%D[%D,%D]  vts:%U-%U  ats:%U-%U"
 			, rtj, rtj - ts_cur[0], rtj - ts_cur[1]
 			, ts_cur[0], ts_next[0]
 			, ts_cur[1], ts_next[1]);

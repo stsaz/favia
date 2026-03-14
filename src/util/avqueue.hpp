@@ -1,7 +1,14 @@
 /** favia: AV frame queue
 2025, Simon Zolin */
 
-struct queue {
+#pragma once
+
+struct qframe : ffmpeg_frame {
+	uint64_t ts;
+	uint dur;
+};
+
+struct avqueue {
 	uint r, w, cap, mask;
 	qframe data[0];
 
@@ -52,9 +59,10 @@ struct queue {
 	}
 };
 
-static struct queue* queue_alloc(uint n) {
-	uint nn = sizeof(struct queue) + n * sizeof(struct qframe);
-	struct queue *q = (struct queue*)ffmem_align(nn, 64);
+static struct avqueue* queue_alloc(uint n)
+{
+	uint nn = sizeof(struct avqueue) + n * sizeof(struct qframe);
+	struct avqueue *q = (struct avqueue*)ffmem_align(nn, 64);
 	ffmem_zero(q, nn);
 	q->r = q->w = 0;
 	q->cap = n;
@@ -65,13 +73,14 @@ static struct queue* queue_alloc(uint n) {
 	return q;
 }
 
-static struct queue* queue_realloc(struct queue *q, uint n) {
+static struct avqueue* queue_realloc(struct avqueue *q, uint n)
+{
 	uint len = q->w - q->r, n_right, i;
 	if (n < len)
 		return NULL;
 
-	uint nn = sizeof(struct queue) + n * sizeof(struct qframe);
-	struct queue *nq = (struct queue*)ffmem_align(nn, 64);
+	uint nn = sizeof(struct avqueue) + n * sizeof(struct qframe);
+	struct avqueue *nq = (struct avqueue*)ffmem_align(nn, 64);
 	ffmem_zero(nq, nn);
 	nq->r = nq->w = 0;
 	nq->cap = n;

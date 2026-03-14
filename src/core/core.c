@@ -14,28 +14,13 @@ static struct fav_core *cx;
 const fav_core_if *core;
 FF_EXTERN void tracks_init();
 FF_EXTERN int tracks_run();
+FF_EXTERN void vomo_destroy();
+FF_EXTERN void q_init();
 
 #include <ui.h>
 
-#ifdef FF_WIN
-static inline int ffthread_usleep(unsigned usec)
+int core_run()
 {
-	Sleep(usec / 1000);
-	return 0;
-}
-
-#else
-static inline int ffthread_usleep(unsigned usec)
-{
-	struct timespec ts = {
-		.tv_sec = usec / 1000000,
-		.tv_nsec = (usec % 1000000) * 1000,
-	};
-	return nanosleep(&ts, NULL);
-}
-#endif
-
-int core_run() {
 	dbglog("entering worker loop");
 	while (!FFINT_READONCE(cx->stop)) {
 
@@ -56,12 +41,14 @@ int core_run() {
 	return 0;
 }
 
-static void core_stop() {
+static void core_stop()
+{
 	dbglog("core stop");
 	FFINT_WRITEONCE(cx->stop, 1);
 }
 
-static void core_task(uint flags, fav_task *t, fav_task_func func, void *param) {
+static void core_task(uint flags, fav_task *t, fav_task_func func, void *param)
+{
 	if (fftaskqueue_active(&cx->tq, (fftask*)t))
 		fftaskqueue_del(&cx->tq, (fftask*)t);
 
@@ -85,16 +72,20 @@ static fav_core_if cif = {
 	.task = core_task,
 };
 
-fav_core_if* core_init(struct fav_core_conf *conf) {
+fav_core_if* core_init(struct fav_core_conf *conf)
+{
 	cif.log = conf->log;
 	cif.conf = *conf;
 	cx = ffmem_new(struct fav_core);
 	fftaskqueue_init(&cx->tq);
 	core = &cif;
 	tracks_init();
+	q_init();
 	return &cif;
 }
 
-void core_destroy() {
+void core_destroy()
+{
+	vomo_destroy();
 	ffmem_free(cx);  cx = NULL;
 }

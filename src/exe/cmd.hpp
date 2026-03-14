@@ -25,7 +25,8 @@ static void help_info_write(const char *sz)
 	ffstdout_write(v.ptr, v.len);
 }
 
-static int arg_help(struct exe *x) {
+static int arg_help(struct exe *x)
+{
 	help_info_write("\
 Usage:\n\
     favia [OPTIONS] INPUT...\n\
@@ -57,7 +58,8 @@ Options:\n\
 	return 1;
 }
 
-static int arg_seek(struct exe *x, ffstr s) {
+static int arg_seek(struct exe *x, ffstr s)
+{
 	ffdatetime dt = {};
 	if (s.len != fftime_fromstr1(&dt, s.ptr, s.len, FFTIME_HMS_MSEC_VAR))
 		return _ffargs_err(x->cmd, 1, "incorrect time value '%S'", &s);
@@ -66,7 +68,8 @@ static int arg_seek(struct exe *x, ffstr s) {
 	return 0;
 }
 
-static int arg_until(struct exe *x, ffstr s) {
+static int arg_until(struct exe *x, ffstr s)
+{
 	ffdatetime dt = {};
 	if (s.len != fftime_fromstr1(&dt, s.ptr, s.len, FFTIME_HMS_MSEC_VAR))
 		return _ffargs_err(x->cmd, 1, "incorrect time value '%S'", &s);
@@ -75,7 +78,8 @@ static int arg_until(struct exe *x, ffstr s) {
 	return 0;
 }
 
-static int arg_input(struct exe *x, const char *s) {
+static int arg_input(struct exe *x, const char *s)
+{
 	if (s[0] == '-')
 		return _ffargs_err(x->cmd, 1, "unknown option '%s'. Use '-h' for usage info.", s);
 
@@ -108,7 +112,8 @@ static const struct ffarg cmd_root[] = {
 };
 #undef O
 
-int cmd(int argc, char **argv, const char *cmd_line) {
+int cmd(int argc, char **argv, const char *cmd_line)
+{
 	x->hwaccel = "vaapi";
 #ifdef FF_WIN
 	x->hwaccel = "d3d11va";

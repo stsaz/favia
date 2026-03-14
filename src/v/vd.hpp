@@ -1,14 +1,16 @@
 /** favia: AV decoding CU
 2025, Simon Zolin */
 
+#include <util/avqueue.hpp>
+
 #define AVQ_SIZE_MAX  128
 
 static int cu_avdec_open(fav_track *t)
 {
 	if (*t->conf.decoder.hw_accel
 		&& !t->static_pic
-		&& !t->dec.hwaccel_enable(t->conf.decoder.hw_accel))
-		warnlog(t, "HW decoding is inactive: %s", t->dec.error());
+		&& !t->dec->hwaccel_enable(t->conf.decoder.hw_accel))
+		warnlog(t, "HW decoding is inactive: %s", t->dec->error());
 
 	t->vq = queue_alloc(t->conf.decoder.q_size);
 	t->aq = queue_alloc(t->conf.decoder.q_size);
@@ -25,6 +27,7 @@ static int cu_av_decode(fav_track *t)
 {
 	int r;
 	qframe *f;
+	xxffmpeg_packet *pkt = (xxffmpeg_packet*)t->pkt;
 
 	if (t->want_input) {
 		dbglog(t, "VQ or AQ is empty");
@@ -55,7 +58,7 @@ static int cu_av_decode(fav_track *t)
 	if (!t->have_pkt)
 		goto done;
 
-	if (t->pkt.stream_index() == t->dec.video_stream) {
+	if (pkt->stream_index() == t->dec->video_stream) {
 
 		if (!(f = t->vq->push())) {
 			dbglog(t, "video queue full");
@@ -63,18 +66,18 @@ static int cu_av_decode(fav_track *t)
 			return FAV_CU_FWD;
 		}
 
-		if ((r = t->dec.video_decode(t->pkt, &f->frame))) {
+		if ((r = t->dec->video_decode(*pkt, f))) {
 			t->vq->pop();
 			if (r > 0)
 				goto done; // this packet is completely processed
-			warnlog(t, "Video packet decode: %s", t->dec.error());
+			warnlog(t, "Video packet decode: %s", t->dec->error());
 			goto done;
 		}
 
-		f->ts = t->dec.video_time_base() * t->pkt.pts() * 1000000;
-		f->dur = t->dec.video_time_base() * t->pkt.duration() * 1000000;
+		f->ts = t->dec->video_time_base() * pkt->pts() * 1000000;
+		f->dur = t->dec->video_time_base() * pkt->duration() * 1000000;
 
-	} else if (t->pkt.stream_index() == t->dec.audio_stream
+	} else if (pkt->stream_index() == t->dec->audio_stream
 		&& !t->conf.no_sound) {
 
 		if (!(f = t->aq->push())) {
@@ -83,16 +86,16 @@ static int cu_av_decode(fav_track *t)
 			return FAV_CU_FWD;
 		}
 
-		if ((r = t->dec.audio_decode(t->pkt, &f->frame))) {
+		if ((r = t->dec->audio_decode(*pkt, f))) {
 			t->aq->pop();
 			if (r > 0)
 				goto done; // this packet is completely processed
-			warnlog(t, "Audio packet decode: %s", t->dec.error());
+			warnlog(t, "Audio packet decode: %s", t->dec->error());
 			goto done;
 		}
 
-		f->ts = t->dec.audio_time_base() * t->pkt.pts() * 1000000;
-		f->dur = t->dec.audio_time_base() * t->pkt.duration() * 1000000;
+		f->ts = t->dec->audio_time_base() * pkt->pts() * 1000000;
+		f->dur = t->dec->audio_time_base() * pkt->duration() * 1000000;
 
 	} else {
 		return FAV_CU_BACK;
@@ -121,9 +124,9 @@ static int cu_av_ctl(fav_track *t, uint cmd, uint flags)
 		break;
 
 	case FAV_TRACK_AUDIO_NEXT:
-		if ((r = t->dec.audio_stream_switch())) {
+		if ((r = t->dec->audio_stream_switch())) {
 			if (r < 0)
-				warnlog(t, "Switching audio streams: %s", t->dec.error());
+				warnlog(t, "Switching audio streams: %s", t->dec->error());
 			break;
 		}
 

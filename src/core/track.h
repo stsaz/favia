@@ -3,30 +3,8 @@
 
 #pragma once
 #include <favia.h>
-#include <util/ffmpeg.h>
-#include <util/util.hpp>
 
 FF_EXTERN const fav_core_if *core;
-
-#include <util/avsync.hpp>
-
-struct qframe {
-	struct ffmpeg_frame frame;
-	uint64_t ts;
-	uint dur;
-
-	void alloc() {
-		ffmpeg_frame_init(&frame);
-	}
-	void destroy() {
-		ffmpeg_frame_destroy(&frame);
-	}
-	void unref() {
-		ffmpeg_frame_unref(&frame);
-	}
-};
-
-#include <util/queue.hpp>
 
 #undef syserrlog
 #undef errlog
@@ -74,6 +52,11 @@ enum trk_state {
 struct inx;
 struct aox;
 struct vox;
+struct syx;
+struct avqueue;
+struct avsync;
+struct xxffmpeg_dec;
+struct xxffmpeg_packet;
 
 struct fav_track {
 	struct fav_track_conf conf;
@@ -82,6 +65,7 @@ struct fav_track {
 	struct inx *inx;
 	struct aox *aox;
 	struct vox *vox;
+	struct syx *syx;
 	const void *vo_window;
 
 	uint duration_msec;
@@ -92,10 +76,11 @@ struct fav_track {
 	uint audio_rate;
 	u_char audio_channels;
 
-	xxffmpeg_dec dec;
-	queue *vq, *aq;
-	struct avsync sync;
-	xxffmpeg_packet pkt;
+	struct xxffmpeg_dec *dec;
+	struct avqueue *vq, *aq;
+	struct avsync *sync;
+	struct xxffmpeg_packet *pkt;
+	uint64_t cur_pos_msec;
 	uint input_full, have_pkt;
 	uint64_t loop_start, loop_end;
 	uint arg2;
@@ -103,13 +88,14 @@ struct fav_track {
 	uint redraw :1;
 	uint read_fin :1;
 	uint audio_stream_switched :1;
-	uint next :1;
 	uint static_pic :1;
+	uint stop :1;
+	uint next :1;
+	uint picture :1;
 	uint iframe;
 	uint want_input;
 	uint async_ret;
 	uint frame_flags;
-	uint cur_pos_msec;
 	int error;
 
 	struct {

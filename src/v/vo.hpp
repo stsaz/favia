@@ -3,6 +3,7 @@
 
 #include <util/SDL.hpp>
 #include <util/util.h>
+#include <util/avqueue.hpp>
 #include <ffsys/std.h>
 
 struct vomo {
@@ -26,6 +27,12 @@ static int vomo_init()
 		}
 	}
 	return 0;
+}
+
+extern "C" void vomo_destroy()
+{
+	vom->v.~xxsdl();
+	ffmem_zero_obj(&vom->v);
 }
 
 static void v_obj_move(struct xxsdl *dst, struct xxsdl *src)
@@ -148,7 +155,7 @@ static void cu_v_close(fav_track *t)
 {
 	struct vox *x = t->vox;
 
-	if (!vom->v.window && t->next) {
+	if (!vom->v.window) {
 		v_obj_move(&vom->v, &x->v);
 	}
 
@@ -252,18 +259,18 @@ static int cu_v_display(fav_track *t)
 
 	if (!t->conf.no_display) {
 		SDL_BlendMode blendmode;
-		SDL_PixelFormat format = format_sdl_av(f->frame.frame->format, &blendmode);
+		SDL_PixelFormat format = format_sdl_av(f->frame->format, &blendmode);
 		if (format == SDL_PIXELFORMAT_UNKNOWN) {
-			if (!t->dec.video_convert(&f->frame)) {
-				errlog(t, "Video frame convert: %s", t->dec.error());
+			if (!t->dec->video_convert(f)) {
+				errlog(t, "Video frame convert: %s", t->dec->error());
 				complete = 1;
 				goto end;
 			}
-			format = format_sdl_av(f->frame.frame->format, &blendmode);
+			format = format_sdl_av(f->frame->format, &blendmode);
 		}
-		dbglog(t, "AV-pixel-format:0x%xu  SDL-pixel-format:0x%xu", f->frame.frame->format, format);
+		dbglog(t, "AV-pixel-format:0x%xu  SDL-pixel-format:0x%xu", f->frame->format, format);
 
-		struct sdl_frame sf = frame_sdl_av(f->frame.frame);
+		struct sdl_frame sf = frame_sdl_av(f->frame);
 		if (!x->v.display(&sf, format, blendmode)) {
 			errlog(t, "display: %s", x->v.error());
 			complete = 1;
@@ -271,9 +278,7 @@ static int cu_v_display(fav_track *t)
 	}
 
 end:
-	t->sync.frame(f->ts, f->dur, 0);
-
-	t->cur_pos_msec = f->ts / 1000;
+	t->cur_pos_msec = t->sync->frame(f->ts, f->dur, 0) / 1000;
 	cu_v_pos_print(x, t, f->ts / 1000000);
 
 	if (complete) {

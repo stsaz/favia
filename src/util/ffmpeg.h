@@ -12,13 +12,6 @@ struct ffmpeg_packet {
 };
 
 typedef struct ffmpeg_frame ffmpeg_frame;
-struct ffmpeg_frame {
-	AVFrame *frame;
-
-#ifdef __cplusplus
-	bool key() const { return !!(frame->flags & AV_FRAME_FLAG_KEY); }
-#endif
-};
 
 #ifdef __cplusplus
 extern "C" {
@@ -32,6 +25,17 @@ void ffmpeg_frame_unref(ffmpeg_frame *f);
 #ifdef __cplusplus
 }
 #endif
+
+struct ffmpeg_frame {
+	AVFrame *frame;
+
+#ifdef __cplusplus
+	void alloc() { ffmpeg_frame_init(this); }
+	void destroy() { ffmpeg_frame_destroy(this); }
+	void unref() { ffmpeg_frame_unref(this); }
+	bool key() const { return !!(frame->flags & AV_FRAME_FLAG_KEY); }
+#endif
+};
 
 #ifdef __cplusplus
 struct xxffmpeg_packet : ffmpeg_packet {

@@ -64,7 +64,7 @@ endif
 %.o: $(FAVIA_DIR)/src/util/%.c
 	$(C) $(CFLAGS) $< -o $@
 
-OBJS := exe.o core.o track.o \
+OBJS := exe.o core.o queue.o track.o \
 	ffmpeg.o
 
 include $(FAVIA_DIR)/src/a/Makefile

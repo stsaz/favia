@@ -1,6 +1,8 @@
 /** favia
 2025, Simon Zolin */
 
+#pragma once
+
 #define FAV_VER  106
 
 #include <ffsys/base.h>
@@ -50,8 +52,6 @@ struct fav_core_conf {
 	void (*log)(uint level, const char *id, const char *format, ...);
 	void (*signal)(fav_track *trk, uint cmd, uint flags);
 
-	u_char nav_page_delta;
-
 	u_char seek_step_sec;
 	u_char seek_leap_sec;
 	u_char seek_leap_pct;
@@ -85,6 +85,7 @@ struct fav_track_cu {
 	char name[16];
 	int (*open)(fav_track *t);
 	void (*close)(fav_track *tags);
+	/** Return enum FAV_CU */
 	int (*process)(fav_track *t);
 	int (*ctl)(fav_track *t, uint cmd, uint flags);
 };
@@ -166,7 +167,7 @@ enum FAV_TRACK_CMD {
 	FAV_TRACK_AUDIO_NEXT,
 	FAV_TRACK_SEEK, // int
 	FAV_TRACK_START, // int
-	FAV_TRACK_STOP, // int
+	FAV_TRACK_STOP,
 	FAV_TRACK_QUIT,
 	FAV_TRACK_WINDOW, // int, int
 	FAV_TRACK_SOURCE, // int
@@ -175,10 +176,27 @@ enum FAV_TRACK_CMD {
 
 struct fav_track_if {
 	fav_track* (*create)(struct fav_track_conf *conf);
-	void (*close)(fav_track *t, uint flags);
+	void (*close)(fav_track *t);
 
 	/** cmd: enum FAV_TRACK_CMD */
 	int (*cmd)(fav_track *t, uint cmd, ...);
 
 	fav_track* (*find)(const void *sdl_wnd);
+};
+
+
+struct fav_q_conf {
+	struct fav_track_conf tconf;
+	u_char parallel;
+	u_char repeat;
+};
+
+struct fav_q_if {
+	void (*on_change)(void (*f)(uint flags));
+	void (*create)(struct fav_q_conf *conf);
+	void (*add)(const char **filenames, uint n);
+	void (*ins)(const char *fn, uint pos);
+	void (*play)(int delta);
+	uint (*count)();
+	void (*signal)(fav_track *trk, uint cmd, uint flags);
 };

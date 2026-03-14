@@ -89,10 +89,8 @@ static void track_busytime_print(fav_track *t)
 	infolog(t, "%S", &buf);
 }
 
-static void track_close(fav_track *t, uint flags)
+static void track_close(fav_track *t)
 {
-	t->next = !!(flags & 1);
-
 	fav_track **it;
 	FFSLICE_WALK(&xt->tracks, it) {
 		if (t == *it) {
@@ -173,6 +171,20 @@ static int trk_src_trash(fav_track *t)
 	return 0;
 }
 
+static void seek_loop(fav_track *t, uint start)
+{
+	if (start) {
+		t->loop_start = ffmax((int64_t)t->cur_pos_msec - (uint)core->conf.seek_range_margin_msec, 0);
+	} else {
+		t->loop_end = t->cur_pos_msec + (uint)core->conf.seek_range_margin_msec;
+		char buf1[64], buf2[64];
+		infolog(t, "range: \"%s\"  %s %s"
+			, t->conf.input.url
+			, time_print(t->loop_start, buf1, sizeof(buf1))
+			, time_print(t->loop_end, buf2, sizeof(buf2)));
+	}
+}
+
 static int track_cmd(fav_track *t, uint cmd, ...)
 {
 	int r;
@@ -194,9 +206,12 @@ static int track_cmd(fav_track *t, uint cmd, ...)
 	va_end(va);
 
 	switch (cmd) {
+	case FAV_TRACK_STOP:
+		t->stop = 1;
+		track_close(t);
+		return 0;
 
 	case FAV_TRACK_START:
-	case FAV_TRACK_STOP:
 	case FAV_TRACK_QUIT:
 		core->conf.signal(t, cmd, flags);
 		break;
@@ -242,16 +257,7 @@ static int track_cmd(fav_track *t, uint cmd, ...)
 
 	case FAV_TRACK_SEEK:
 		if (flags & FAV_TRACK_SEEK_LOOP) {
-			if (!(flags & FAV_TRACK_SEEK_REVERSE)) {
-				t->loop_start = ffmax((int64_t)t->sync.pos() - (uint)core->conf.seek_range_margin_msec * 1000, 0) / 1000;
-			} else {
-				t->loop_end = (t->sync.pos() + (uint)core->conf.seek_range_margin_msec * 1000) / 1000;
-				char buf1[64], buf2[64];
-				infolog(t, "range: \"%s\"  %s %s"
-					, t->conf.input.url
-					, time_print(t->loop_start, buf1, sizeof(buf1))
-					, time_print(t->loop_end, buf2, sizeof(buf2)));
-			}
+			seek_loop(t, !(flags & FAV_TRACK_SEEK_REVERSE));
 			return 0;
 		}
 
@@ -386,13 +392,13 @@ static int track_run(fav_track *t)
 
 done:
 	if (t->conf.pause_on_end
-		|| t->dec.picture()) {
+		|| t->picture) {
 		t->state |= TRK_PAUSED;
 		return 0x7fffffff;
 	}
 
 end:
-	core->conf.signal(t, FAV_TRACK_STOP, 1);
+	track_close(t);
 	return -1;
 }
 
