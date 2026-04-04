@@ -166,10 +166,10 @@ static int cu_in_ctl(fav_track *t, uint cmd, uint flags)
 	int r;
 	switch (cmd) {
 	case FAV_TRACK_SEEK: {
-		if (flags & FAV_TRACK_SEEK_LEAP_PERCENT)
-			r = t->duration_msec / 1000 * core->conf.seek_leap_pct / 100;
-		else
-			r = !(flags & FAV_TRACK_SEEK_LEAP) ? core->conf.seek_step_sec : core->conf.seek_leap_sec;
+		r = (flags & FAV_TRACK_SEEK_JUMP) ? core->conf.seek_jump_sec
+			: (flags & FAV_TRACK_SEEK_LEAP) ? core->conf.seek_leap_sec
+			: (flags & FAV_TRACK_SEEK_LEAP_PERCENT) ? t->duration_msec / 1000 * core->conf.seek_leap_pct / 100
+			: core->conf.seek_step_sec;
 		if (flags & FAV_TRACK_SEEK_REVERSE)
 			r = -r;
 		uint64_t pos_msec = t->cur_pos_msec + r * 1000;

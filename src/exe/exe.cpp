@@ -56,6 +56,7 @@ static void core_open()
 		.signal = exe_signal,
 
 		.seek_step_sec = 5,
+		.seek_jump_sec = 15,
 		.seek_leap_sec = 60,
 		.seek_leap_pct = 5,
 		.zoom_by_pct = 10,

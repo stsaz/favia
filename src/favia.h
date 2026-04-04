@@ -53,6 +53,7 @@ struct fav_core_conf {
 	void (*signal)(fav_track *trk, uint cmd, uint flags);
 
 	u_char seek_step_sec;
+	u_char seek_jump_sec;
 	u_char seek_leap_sec;
 	u_char seek_leap_pct;
 	u_char zoom_by_pct;
@@ -144,6 +145,7 @@ enum FAV_TRACK_CMD_ARG {
 	FAV_TRACK_SEEK_LEAP = 2,
 	FAV_TRACK_SEEK_LEAP_PERCENT = 4,
 	FAV_TRACK_SEEK_LOOP = 8,
+	FAV_TRACK_SEEK_JUMP = 0x10,
 
 	FAV_TRACK_WND_RM = 0,
 	FAV_TRACK_WND_ADD = 1,
