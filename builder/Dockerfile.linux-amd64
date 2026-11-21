@@ -1,0 +1,23 @@
+FROM debian:trixie-slim
+RUN apt update && \
+ apt install -y \
+  make
+RUN apt install -y \
+ clang lld
+RUN apt install -y \
+ libva-dev \
+ libz-dev \
+ libx11-dev libxext-dev \
+ libpulse-dev
+RUN apt install -y \
+ curl \
+ pkgconf \
+ zstd \
+ cmake \
+ nasm
+ARG NFPM_VER=2.46.3
+ARG NFPM_SHA256SUM=d6417f99d5fa32bba7a4e007084615d3897651498c2e443118c26b9ec3b698a8
+RUN curl -L -o nfpm.deb https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VER}/nfpm_${NFPM_VER}_amd64.deb \
+ && echo "${NFPM_SHA256SUM} *nfpm.deb" | sha256sum -c - \
+ && dpkg -i nfpm.deb \
+ && rm -f nfpm.deb

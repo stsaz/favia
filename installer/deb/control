@@ -1,0 +1,11 @@
+Package: favia
+Version: __FAVIA_VERSION__
+Architecture: __ARCH__
+Section: video
+Priority: optional
+Maintainer: Simon Zolin <stsaz@pm.me>
+Depends: libc6
+Description: Fast video player (and image viewer) for Linux & Windows.
+ favia is a fast video player based on ffmpeg and SDL. It supports
+ hardware decoding (VAAPI/CUDA on Linux, D3D11 on Windows), can view
+ images, and play multiple files in separate windows.
