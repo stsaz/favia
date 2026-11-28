@@ -1,10 +1,13 @@
 /** favia: process events from SDL window
 2025, Simon Zolin */
 
+#include <favia.h>
 #include <ffsys/perf.h>
 #include <util/SDL.h>
 #include <util/util.h>
 #include <ffbase/stringz.h>
+
+extern const fav_core_if *core;
 
 struct ui {
 	uint flags;

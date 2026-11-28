@@ -9,16 +9,12 @@ APP_DIR := favia-0
 
 include $(FFBASE_DIR)/conf.mk
 
-VLIB3_DIR := vlib3
-SDL_DIR := $(VLIB3_DIR)/SDL3-3.2.28/include
-FFMPEG_DIR := $(VLIB3_DIR)/FFmpeg-n7.1.3
-
-CFLAGS += -std=c99 \
+CFLAGS += -std=c99 -fPIC \
 	-g \
 	-Wno-narrowing \
 	-MMD -MP \
 	-DFFBASE_MEM_ASSERT \
-	-I$(FAVIA_DIR)/src -I$(FFBASE_DIR) -I$(FFSYS_DIR) -I$(SDL_DIR) -I$(FFMPEG_DIR)
+	-I$(FAVIA_DIR)/src -I$(FFBASE_DIR) -I$(FFSYS_DIR)
 
 ifeq "$(DEBUG)" "1"
 	CFLAGS += -DFF_DEBUG -O0 -Werror
@@ -39,32 +35,18 @@ endif
 
 -include $(wildcard *.d)
 
-%.o: $(FAVIA_DIR)/src/core/%.c
-	$(C) $(CFLAGS) $< -o $@
-ifdef FAV_VER_STR
-core.o: CFLAGS += -DFAV_VER_STR=\"$(FAV_VER_STR)\"
-endif
-
-%.o: $(FAVIA_DIR)/src/util/%.c
-	$(C) $(CFLAGS) $< -o $@
-
-OBJS := core.o queue.o track.o \
-	ffmpeg.o
+VLIB3_DIR := vlib3
+SDL_DIR := $(VLIB3_DIR)/SDL3-3.2.28/include
+FFMPEG_DIR := $(VLIB3_DIR)/FFmpeg-n7.1.3
 
 include $(FAVIA_DIR)/src/a/Makefile
 include $(FAVIA_DIR)/src/v/Makefile
+include $(FAVIA_DIR)/src/core/Makefile
 include $(FAVIA_DIR)/src/exe/Makefile
-
-VLIB3_SRC := $(FAVIA_DIR)/vlib3
-VLIB3_FLAGS := FAV_VLIB3=$(VLIB3_SRC) OS=$(OS) COMPILER=$(COMPILER) CPU=$(CPU)
-depend:
-	mkdir -p $(VLIB3_DIR)
-	$(MAKE)  -C $(VLIB3_DIR)  -f $(VLIB3_SRC)/ffmpeg/Makefile  -I $(VLIB3_SRC)  $(VLIB3_FLAGS)
-	$(MAKE)  -C $(VLIB3_DIR)  -f $(VLIB3_SRC)/SDL/Makefile  -I $(VLIB3_SRC)  $(VLIB3_FLAGS)
 
 build: $(EXE)
 
-strip-debug: $(addsuffix .debug,$(EXE))
+strip-debug: $(addsuffix .debug,$(EXE) $(LIBS))
 %.debug: %
 	$(OBJCOPY) --only-keep-debug $< $@
 	$(STRIP) $<
@@ -74,9 +56,7 @@ strip-debug: $(addsuffix .debug,$(EXE))
 app:
 	mkdir -p $(APP_DIR)
 	cp -a \
-		$(EXE) \
-		$(VLIB3_DIR)/libffmpeg.$(SO) \
-		$(VLIB3_DIR)/libSDL3.$(SO) \
+		$(EXE) libfavia.$(SO) $(LIBS) $(LIBS_3PT) \
 		$(FAVIA_DIR)/README.md \
 		$(FAVIA_DIR)/res/favia.rgba \
 		$(APP_DIR)/

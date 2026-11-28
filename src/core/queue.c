@@ -6,11 +6,14 @@
 #include <ffbase/vector.h>
 #include <ffbase/fntree.h>
 
+extern const fav_core_if *core;
+
 struct queue {
 	struct fav_q_conf conf;
 	void (*changed)(uint flags);
 	uint cursor, n_tracks;
 	ffvec input; // const char*[]
+	const struct fav_track_cu* cus[8];
 };
 
 static struct queue *q;
@@ -20,14 +23,64 @@ static void q_on_change(void (*f)(uint flags))
 	q->changed = f;
 }
 
+extern const struct fav_track_cu
+	trk_cu_guard,
+	trk_cu_read,
+	trk_cu_decode,
+	trk_cu_sync,
+	trk_cu_until;
+
+static const struct fav_track_cu* trk_cu_template[] = {
+	&trk_cu_guard,
+	&trk_cu_read,
+
+	/*
+	(!packet && !read_fin) ? BACK
+	(!packet && read_fin) ? fin=1
+	(want_input && fin) ? FIN
+	FWD
+	*/
+	&trk_cu_decode,
+
+	/*
+	(want_input) ? BACK
+	(redraw || audio || video) ? FWD
+	(input_full || fin || paused) ? ASYNC
+	BACK
+	*/
+	&trk_cu_sync,
+
+	/*
+	want_input=q_empty
+	(complete) ? input_full&=~(A || V)
+	*/
+	NULL,
+	NULL,
+
+	&trk_cu_until,
+	NULL,
+};
+
+extern const struct fav_mod* fav_mod_vo_init(const fav_core_if *core);
+extern const struct fav_mod* fav_mod_ao_init(const fav_core_if *core);
+
 void q_init()
 {
 	q = ffmem_new(struct queue);
+	FAV_ASSERT(FF_COUNT(q->cus) >= FF_COUNT(trk_cu_template));
+	ffmem_copy(&q->cus, trk_cu_template, sizeof(trk_cu_template));
+
+	const struct fav_mod *m = fav_mod_vo_init(core);
+	q->cus[4] = (struct fav_track_cu*)m->provide();
+
+	m = fav_mod_ao_init(core);
+	q->cus[5] = (struct fav_track_cu*)m->provide();
 }
 
 static void q_create(struct fav_q_conf *qc)
 {
 	q->conf = *qc;
+	q->conf.tconf.conveyor = q->cus;
 }
 
 static uint q_count()

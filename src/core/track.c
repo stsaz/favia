@@ -9,6 +9,7 @@
 #include <ffsys/error.h>
 #include <core/track.h>
 #include <util/util.h>
+extern const fav_core_if *core;
 #include <f/in.h>
 #include <v/vd.h>
 #include <f/sync.h>
@@ -442,12 +443,13 @@ int tracks_run()
 	return n;
 }
 
-const fav_track_if tif = {
-	track_create,
-	track_close,
-	track_cmd,
-	track_find,
-};
+static int track_video_convert(fav_track *t, struct qframe *f)
+{
+	int r = ffmpeg_dec_video_convert(t->dec, &f->f);
+	if (r)
+		errlog(t, "Video frame convert: %s", ffmpeg_dec_error(t->dec));
+	return r;
+}
 
 static void trk_text_reset(void *param)
 {
@@ -459,3 +461,47 @@ void trk_text_reset_timer(fav_track *t)
 {
 	core->timer(&t->vo.timer, -2000, trk_text_reset, t);
 }
+
+void track_text(fav_track *t, const char *format, ...)
+{
+	va_list va;
+	va_start(va, format);
+	ffsz_format(t->vo.text, sizeof(t->vo.text), format, va);
+	va_end(va);
+	core->timer(&t->vo.timer, -2000, trk_text_reset, t);
+}
+
+static uint track_avq_length(struct avqueue *q)
+{
+	return avqueue_length(q);
+}
+
+static struct qframe* track_avq_push(struct avqueue *q)
+{
+	return avqueue_push(q);
+}
+
+static struct qframe* track_avq_peek(struct avqueue *q)
+{
+	return avqueue_peek(q);
+}
+
+static void track_avq_next(struct avqueue *q)
+{
+	struct qframe *f = avqueue_read(q);
+	ffmpeg_frame_unref(&f->f);
+}
+
+const fav_track_if tif = {
+	track_create,
+	track_close,
+	track_cmd,
+	track_find,
+	track_text,
+	track_video_convert,
+
+	track_avq_length,
+	track_avq_push,
+	track_avq_peek,
+	track_avq_next,
+};

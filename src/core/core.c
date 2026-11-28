@@ -15,12 +15,13 @@
 
 #include <util/kq-tq.h>
 #include <util/kq-timer.h>
+#include <util/util.h>
 #include <ffsys/time.h>
 #include <ffsys/timer.h>
+#include <ffsys/perf.h>
 #include <ffbase/atomic.h>
 
 const fav_core_if *core;
-#include <ui.h>
 
 struct fav_core {
 	struct zzkq kq;
@@ -42,6 +43,7 @@ extern void tracks_destroy();
 extern int tracks_run();
 extern void vomo_destroy();
 extern void q_init();
+extern int user_events();
 
 
 static void core_task(uint flags, fav_task *ft, fav_task_func func, void *param)
@@ -89,8 +91,10 @@ static void core_stop()
 	#define FAV_VER_STR  "test"
 #endif
 
+extern const struct fav_q_if qif;
 extern const fav_track_if tif;
 static fav_core_if cif = {
+	.qif = &qif,
 	.version_str = FAV_VER_STR,
 	.track = &tif,
 	.stop = core_stop,

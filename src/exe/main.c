@@ -11,7 +11,6 @@
 extern fav_core_if* core_init(struct fav_core_conf *conf);
 extern void core_destroy();
 extern int core_run();
-extern const struct fav_q_if qif;
 extern int dir_read(const char *fn, uint ins_pos, uint flags);
 static void exe_signal(fav_track *trk, uint cmd, uint flags);
 extern int autodir_read(const char *dir_path, ffstr file_name);
@@ -39,7 +38,6 @@ struct exe {
 	fav_task task;
 	uint exit_code;
 	struct zzlog log;
-	const struct fav_q_if *q;
 
 	char	fn_buf[128], *fn;
 	ffstr	root_dir;
@@ -138,46 +136,6 @@ static void signals()
 	ffsig_subscribe(sig, sigs, FF_COUNT(sigs));
 }
 
-extern const struct fav_track_cu
-	trk_cu_guard,
-	trk_cu_read,
-	trk_cu_decode,
-	trk_cu_sync,
-	trk_cu_vo,
-	trk_cu_ao,
-	trk_cu_until;
-
-static const struct fav_track_cu* trk_cu_set_play[] = {
-	&trk_cu_guard,
-	&trk_cu_read,
-
-	/*
-	(!packet && !read_fin) ? BACK
-	(!packet && read_fin) ? fin=1
-	(want_input && fin) ? FIN
-	FWD
-	*/
-	&trk_cu_decode,
-
-	/*
-	(want_input) ? BACK
-	(redraw || audio || video) ? FWD
-	(input_full || fin || paused) ? ASYNC
-	BACK
-	*/
-	&trk_cu_sync,
-
-	/*
-	want_input=q_empty
-	(complete) ? input_full&=~(A || V)
-	*/
-	&trk_cu_vo,
-	&trk_cu_ao,
-
-	&trk_cu_until,
-	NULL,
-};
-
 static void exe_q_changed(uint flags)
 {
 	switch (flags) {
@@ -190,12 +148,10 @@ static void exe_q_changed(uint flags)
 static void exe_iq_start(void *param)
 {
 	struct exe *x = param;
-	x->q = &qif;
-	x->q->on_change(exe_q_changed);
+	x->core->qif->on_change(exe_q_changed);
 
 	struct fav_q_conf qc = {
 		.tconf = {
-			.conveyor = trk_cu_set_play,
 			.input = {
 				.seek_msec = x->args.seek_msec,
 				.until_msec = (x->args.until_msec) ? x->args.until_msec : ~0ULL,
@@ -220,7 +176,7 @@ static void exe_iq_start(void *param)
 		.parallel = x->args.parallel,
 		.repeat = x->args.repeat,
 	};
-	x->q->create(&qc);
+	x->core->qif->create(&qc);
 
 	const char **in = x->args.input.ptr;
 	if (x->args.input.len && x->args.autodir) {
@@ -231,12 +187,12 @@ static void exe_iq_start(void *param)
 		char *pathz = ffsz_dupstr(&path);
 		autodir_read(pathz, name); // Add all files from the first input file's directory
 		ffmem_free(pathz);
-		x->q->add(in + 1, x->args.input.len - 1);
+		x->core->qif->add(in + 1, x->args.input.len - 1);
 	} else {
-		x->q->add(in, x->args.input.len);
+		x->core->qif->add(in, x->args.input.len);
 	}
 
-	x->q->play(0);
+	x->core->qif->play(0);
 }
 
 static void exe_signal(fav_track *trk, uint cmd, uint flags)
@@ -248,7 +204,7 @@ static void exe_signal(fav_track *trk, uint cmd, uint flags)
 		break;
 
 	default:
-		x->q->signal(trk, cmd, flags);
+		x->core->qif->signal(trk, cmd, flags);
 	}
 }
 

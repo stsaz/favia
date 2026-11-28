@@ -59,7 +59,7 @@ static int cu_av_decode(fav_track *t)
 
 	if (ffmpeg_packet_stream_index(pkt) == t->dec->video_stream) {
 
-		if (!(f = avqueue_push(t->vq))) {
+		if (!(f = core->track->avq_push(t->vq))) {
 			dbglog(t, "video queue full");
 			t->input_full = FAV_F_VIDEO;
 			return FAV_CU_FWD;
@@ -79,7 +79,7 @@ static int cu_av_decode(fav_track *t)
 	} else if (ffmpeg_packet_stream_index(pkt) == t->dec->audio_stream
 		&& !t->conf.no_sound) {
 
-		if (!(f = avqueue_push(t->aq))) {
+		if (!(f = core->track->avq_push(t->aq))) {
 			dbglog(t, "audio queue full");
 			t->input_full = FAV_F_AUDIO;
 			return FAV_CU_FWD;

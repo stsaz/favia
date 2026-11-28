@@ -2,7 +2,7 @@
 2025, Simon Zolin */
 
 #include <core/track.h>
-extern const fav_core_if *core;
+const fav_core_if *core;
 #include <util/SDL.h>
 #include <util/util.h>
 #include <util/avsync.h>
@@ -123,12 +123,12 @@ struct vox {
 	uint64_t prev_pos_sec;
 };
 
-static void cu_v_fullscreen_toggle(struct vox *x, fav_track *t)
+static void vo_fullscreen_toggle(struct vox *x, fav_track *t)
 {
 	sdl_fullscreen(&x->v, !x->v.fullscreen);
 }
 
-static void cu_v_size(struct vox *x, fav_track *t, uint rw, uint rh)
+static void vo_size(struct vox *x, fav_track *t, uint rw, uint rh)
 {
 	uint xx = 0, y = 0, w = t->video_width, h = t->video_height;
 	double ratio = (double)w / h;
@@ -148,7 +148,7 @@ static void cu_v_size(struct vox *x, fav_track *t, uint rw, uint rh)
 	sdl_texture_rect(&x->v, xx, y, rw, rh);
 }
 
-static void cu_v_close(fav_track *t)
+static void vo_close(fav_track *t)
 {
 	struct vox *x = t->vox;
 
@@ -160,7 +160,7 @@ static void cu_v_close(fav_track *t)
 	fav_track_free(t, x);
 }
 
-static int cu_v_open(fav_track *t)
+static int vo_open(fav_track *t)
 {
 	if (vomo_init())
 		return FAV_CU_ERROR;
@@ -181,10 +181,10 @@ static int cu_v_open(fav_track *t)
 		v_obj_move(&x->v, &vom->v);
 		if (x->v.fullscreen) {
 			sdl_screen_size(&w, &h);
-			cu_v_size(x, t, w, h);
+			vo_size(x, t, w, h);
 		} else if (t->conf.video.zoom_lock_wnd) {
 			sdl_wnd_size(&x->v, &w, &h);
-			cu_v_size(x, t, w, h);
+			vo_size(x, t, w, h);
 		} else {
 			sdl_window_size(&x->v, w, h);
 			sdl_texture_rect(&x->v, 0, 0, w, h);
@@ -201,7 +201,7 @@ static int cu_v_open(fav_track *t)
 		};
 		if (sdl_open(&x->v, &conf)) {
 			errlog(t, "Video renderer: %s", sdl_error(&x->v));
-			cu_v_close(t);
+			vo_close(t);
 			return FAV_CU_ERROR;
 		}
 		if (t->conf.video.zoom_lock_wnd) {
@@ -214,13 +214,13 @@ static int cu_v_open(fav_track *t)
 	t->vo_window = x->v.window;
 
 	if (t->conf.video.fullscreen)
-		cu_v_fullscreen_toggle(x, t);
+		vo_fullscreen_toggle(x, t);
 
 	sdl_show(&x->v);
 	return FAV_CU_FWD;
 }
 
-static void cu_v_pos_print(struct vox *x, fav_track *t, uint64_t pos_sec)
+static void vo_pos_print(struct vox *x, fav_track *t, uint64_t pos_sec)
 {
 	if (pos_sec != x->prev_pos_sec) {
 		x->prev_pos_sec = pos_sec;
@@ -231,7 +231,7 @@ static void cu_v_pos_print(struct vox *x, fav_track *t, uint64_t pos_sec)
 	}
 }
 
-static int cu_v_display(fav_track *t)
+static int vo_display(fav_track *t)
 {
 	struct vox *x = (struct vox*)t->vox;
 	struct qframe *f;
@@ -249,18 +249,17 @@ static int cu_v_display(fav_track *t)
 	}
 
 	if (!(t->frame_flags & FAV_F_REDRAW)) {
-		if (avqueue_length(t->vq) < 2) {
+		if (core->track->avq_length(t->vq) < 2) {
 			t->want_input |= FAV_F_VIDEO;
 			return FAV_CU_FWD;
 		}
 
 		// Draw next frame
-		f = avqueue_read(t->vq);
-		ffmpeg_frame_unref(&f->f);
+		core->track->avq_next(t->vq);
 		t->input_full &= ~FAV_F_VIDEO;
 	}
 
-	if (!(f = avqueue_peek(t->vq))) {
+	if (!(f = core->track->avq_peek(t->vq))) {
 		t->want_input |= FAV_F_VIDEO;
 		return FAV_CU_FWD;
 	}
@@ -269,8 +268,7 @@ static int cu_v_display(fav_track *t)
 		SDL_BlendMode blendmode;
 		SDL_PixelFormat format = format_sdl_av(f->f.frame->format, &blendmode);
 		if (format == SDL_PIXELFORMAT_UNKNOWN) {
-			if (ffmpeg_dec_video_convert(t->dec, &f->f)) {
-				errlog(t, "Video frame convert: %s", ffmpeg_dec_error(t->dec));
+			if (core->track->video_convert(t, f)) {
 				complete = 1;
 				goto end;
 			}
@@ -300,28 +298,27 @@ static int cu_v_display(fav_track *t)
 
 end:
 	t->cur_pos_msec = avsync_frame(t->sync, f->ts, f->dur, 0) / 1000;
-	cu_v_pos_print(x, t, f->ts / 1000000);
+	vo_pos_print(x, t, f->ts / 1000000);
 
 	if (complete) {
-		ffmpeg_frame_unref(&f->f);
-		avqueue_read(t->vq);
+		core->track->avq_next(t->vq);
 		t->input_full &= ~FAV_F_VIDEO;
 	}
 	return FAV_CU_FWD;
 }
 
-static int cu_v_ctl(fav_track *t, uint cmd, uint flags)
+static int vo_ctl(fav_track *t, uint cmd, uint flags)
 {
 	struct vox *x = (struct vox*)t->vox;
 	switch (cmd) {
 	case FAV_TRACK_WINDOW:
 		if (flags & FAV_TRACK_WND_RESIZED) {
-			cu_v_size(x, t, INT32_LO16(t->arg2), INT32_HI16(t->arg2));
+			vo_size(x, t, INT32_LO16(t->arg2), INT32_HI16(t->arg2));
 			break;
 		}
 
 		if (flags & FAV_TRACK_WND_FULLSCREEN) {
-			cu_v_fullscreen_toggle(x, t);
+			vo_fullscreen_toggle(x, t);
 			break;
 		}
 
@@ -346,4 +343,19 @@ static int cu_v_ctl(fav_track *t, uint cmd, uint flags)
 	return 0;
 }
 
-const struct fav_track_cu trk_cu_vo = { "v-display", cu_v_open, cu_v_close, cu_v_display, cu_v_ctl };
+static const struct fav_track_cu trk_cu_vo = { "v-display", vo_open, vo_close, vo_display, vo_ctl };
+
+static const void* fav_provide()
+{
+	return &trk_cu_vo;
+}
+
+static const struct fav_mod fav_mod_vo = {
+	fav_provide
+};
+
+FF_EXPORT const struct fav_mod* fav_mod_vo_init(const fav_core_if *_core)
+{
+	core = _core;
+	return &fav_mod_vo;
+}

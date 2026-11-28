@@ -3,10 +3,11 @@
 
 #include <favia.h>
 #include <core/track.h>
-extern const fav_core_if *core;
+static const fav_core_if *core;
 #include <a/audio.h>
 #include <util/avqueue.h>
 #include <util/avsync.h>
+#include <util/ffmpeg.h>
 
 static const struct fav_cu aconv_cu = { audio_aconv_process };
 static const struct fav_cu avol_cu = { audio_avol_process };
@@ -59,7 +60,7 @@ static ffbool a_open(struct aox *x, fav_track *t)
 	return audio_open(&x->a, &ac, interleaved);
 }
 
-static void cu_a_mute_toggle(struct aox *x, fav_track *t)
+static void a_mute_toggle(struct aox *x, fav_track *t)
 {
 	uint m = !(t->state & TRK_MUTE);
 	if (m)
@@ -69,20 +70,20 @@ static void cu_a_mute_toggle(struct aox *x, fav_track *t)
 	audio_volume(&x->a, (m) ? 0 : x->avolume);
 	dbglog(t, "Mute: %u", m);
 	if (m)
-		trk_text(t, "%s", "mute");
+		core->track->text(t, "%s", "mute");
 	else
-		trk_text(t, "%u%%", x->avolume);
+		core->track->text(t, "%u%%", x->avolume);
 }
 
-static void cu_a_volume(struct aox *x, fav_track *t, uint n)
+static void a_volume(struct aox *x, fav_track *t, uint n)
 {
 	x->avolume = n;
 	audio_volume(&x->a, x->avolume);
 	dbglog(t, "Volume: %u%%", x->avolume);
-	trk_text(t, "%u%%", x->avolume);
+	core->track->text(t, "%u%%", x->avolume);
 }
 
-static void cu_a_close(fav_track *t)
+static void ao_close(fav_track *t)
 {
 	struct aox *x = t->aox;
 	if (!x) return;
@@ -90,7 +91,7 @@ static void cu_a_close(fav_track *t)
 	fav_track_free(t, x);
 }
 
-static int cu_a_open(fav_track *t)
+static int ao_open(fav_track *t)
 {
 	if (t->conf.no_sound)
 		return FAV_CU_FWD;
@@ -106,15 +107,15 @@ static int cu_a_open(fav_track *t)
 
 	x->avolume = 100;
 	if (t->conf.audio.volume)
-		cu_a_volume(x, t, t->conf.audio.volume);
+		a_volume(x, t, t->conf.audio.volume);
 
 	if (t->conf.audio.mute)
-		cu_a_mute_toggle(x, t);
+		a_mute_toggle(x, t);
 
 	return FAV_CU_FWD;
 }
 
-static int cu_a_play(fav_track *t)
+static int ao_play(fav_track *t)
 {
 	struct aox *x = t->aox;
 	int r;
@@ -145,7 +146,7 @@ static int cu_a_play(fav_track *t)
 	if (!(t->frame_flags & FAV_F_AUDIO))
 		return FAV_CU_FWD;
 
-	if (!(f = avqueue_peek(t->aq))) {
+	if (!(f = core->track->avq_peek(t->aq))) {
 		t->want_input |= FAV_F_AUDIO;
 		goto end;
 	}
@@ -183,16 +184,15 @@ static int cu_a_play(fav_track *t)
 
 end:
 	if (complete) {
-		f = avqueue_read(t->aq);
+		core->track->avq_next(t->aq);
 		if (!t->video_width)
 			t->cur_pos_msec = avsync_pos(t->sync) / 1000;
-		ffmpeg_frame_unref(&f->f);
 		t->input_full &= ~FAV_F_AUDIO;
 	}
 	return FAV_CU_FWD;
 }
 
-static int cu_a_ctl(fav_track *t, uint cmd, uint flags)
+static int ao_ctl(fav_track *t, uint cmd, uint flags)
 {
 	struct aox *x = t->aox;
 	if (!x)
@@ -213,7 +213,7 @@ static int cu_a_ctl(fav_track *t, uint cmd, uint flags)
 
 	case FAV_TRACK_VOLUME:
 		if (flags & FAV_TRACK_VOL_MUTE) {
-			cu_a_mute_toggle(x, t);
+			a_mute_toggle(x, t);
 			break;
 		}
 
@@ -221,7 +221,7 @@ static int cu_a_ctl(fav_track *t, uint cmd, uint flags)
 			r = ffmin(x->avolume + core->conf.volume_step_pct, 125);
 		else
 			r = ffmax((int)x->avolume - core->conf.volume_step_pct, 0);
-		cu_a_volume(x, t, r);
+		a_volume(x, t, r);
 		break;
 
 	default:
@@ -230,4 +230,19 @@ static int cu_a_ctl(fav_track *t, uint cmd, uint flags)
 	return 0;
 }
 
-const struct fav_track_cu trk_cu_ao = { "a-play", cu_a_open, cu_a_close, cu_a_play, cu_a_ctl };
+static const struct fav_track_cu trk_cu_ao = { "a-play", ao_open, ao_close, ao_play, ao_ctl };
+
+static const void* fav_provide()
+{
+	return &trk_cu_ao;
+}
+
+static const struct fav_mod fav_mod_ao = {
+	fav_provide
+};
+
+FF_EXPORT const struct fav_mod* fav_mod_ao_init(const fav_core_if *_core)
+{
+	core = _core;
+	return &fav_mod_ao;
+}

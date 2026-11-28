@@ -33,7 +33,17 @@ struct fav_cu {
 };
 
 static uint a_init_count;
-extern const char _fav_cu[][14];
+
+// enum FAV_CU
+static const char _fav_cu[][14] = {
+	"FAV_CU_FWD",
+	"FAV_CU_BACK",
+	"FAV_CU_ASYNC",
+	"FAV_CU_ERROR",
+	"FAV_CU_DONE",
+	"FAV_CU_FIN",
+};
+
 extern const struct fav_cu conveyor[4];
 
 static inline void audio_close(struct audio *a)

@@ -71,12 +71,13 @@ favia -zoom 50 -mute -parallel 4 *.mp4
 | `[Ctrl+/Ctrl+Shift+]Left/Right` | Seek |
 | `+/- or Ctrl+MouseWheel` | Zoom |
 | `f`          | Fullscreen |
-| `Ctrl+(+/-)` | Add/remove window |
-| `Tab`        | Cycle through windows |
 | Audio:       | |
 | `Up/Down or MouseWheel` | Volume |
 | `m`          | Mute |
 | `a`          | Switch audio track |
+| Windows:     | |
+| `Ctrl+(+/-)` | Add/remove window |
+| `Tab`        | Cycle through windows |
 
 
 ## Build
@@ -109,7 +110,7 @@ OS=windows bash xbuild.sh
 
 favia uses these third-party libraries:
 [FFmpeg](https://github.com/FFmpeg/FFmpeg),
-[SDL3](https://github.com/libsdl-org/SDL).
+[SDL](https://github.com/libsdl-org/SDL).
 
 Additionally:
 * [ffbase](https://github.com/stsaz/ffbase) — base algorithms
@@ -128,6 +129,12 @@ Debug output may help — add `-Debug` when executing:
 favia -Debug file.mp4
 ```
 
+
+## Architecture
+
+	favia -> Core       -------> libffmpeg
+	(exe)    (libfavia) -> vo -> libSDL
+	                    -> ao -> libpulse
 
 ## License
 

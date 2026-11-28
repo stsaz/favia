@@ -14,12 +14,16 @@ typedef unsigned int uint;
 typedef unsigned short ushort;
 typedef unsigned char u_char;
 
+typedef struct fav_q_if fav_q_if;
 typedef struct fav_track_if fav_track_if;
 typedef struct fav_track fav_track;
 typedef void (*fav_task_func)(void *param);
 typedef struct { void *a[4]; } fav_task;
 typedef fftimerqueue_node fav_timer;
+struct avqueue;
+struct qframe;
 
+#define FAV_ASSERT  FF_ASSERT
 
 enum FAV_LOG_LEVEL {
 	FAV_LOG_ERROR,
@@ -81,6 +85,7 @@ enum FAV_TASK {
 typedef struct fav_core_if fav_core_if;
 struct fav_core_if {
 	struct fav_core_conf conf;
+	const fav_q_if *qif;
 	const fav_track_if *track;
 	const char *version_str;
 
@@ -97,6 +102,15 @@ struct fav_core_if {
 		=0: stop timer */
 	void (*timer)(fav_timer *t, int interval_msec, fav_task_func func, void *param);
 };
+
+
+typedef struct fav_mod fav_mod;
+struct fav_mod {
+	const void* (*provide)();
+};
+
+/** Modules export "fav_mod_*_init". */
+typedef const struct fav_mod* (*fav_mod_init_t)(const fav_core_if *core);
 
 
 struct fav_track_cu {
@@ -228,6 +242,15 @@ struct fav_track_if {
 	int (*cmd)(fav_track *t, uint cmd, ...);
 
 	fav_track* (*find)(const void *sdl_wnd);
+
+	void (*text)(fav_track *t, const char *format, ...);
+
+	int (*video_convert)(fav_track *t, struct qframe *f);
+
+	uint (*avq_length)(struct avqueue *q);
+	struct qframe* (*avq_push)(struct avqueue *q);
+	struct qframe* (*avq_peek)(struct avqueue *q);
+	void (*avq_next)(struct avqueue *q);
 };
 
 

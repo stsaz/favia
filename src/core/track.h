@@ -4,7 +4,7 @@
 #pragma once
 #include <favia.h>
 
-extern const fav_core_if *core;
+/* Extend logging functions with current track context */
 
 #undef syserrlog
 #undef errlog
@@ -27,6 +27,7 @@ do { \
 	if (ff_unlikely(core->conf.log_level >= FAV_LOG_EXTRA)) \
 		core->log(NULL, FAV_LOG_EXTRA, trk->id, __VA_ARGS__); \
 } while (0)
+
 
 enum {
 	FAV_CF_REVERSE = 1,
